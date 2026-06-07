@@ -1,13 +1,16 @@
 {
-  "name": "@gin/cli",
+  "name": "@gin/tools",
   "version": "0.1.0",
-  "description": "The `gin` CLI: onboard, doctor, gateway, agent, message, budget, trace.",
+  "description": "Gin tool registry with Zod-validated calls and the built-in core toolsets.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "gin": "./dist/index.js"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -18,13 +21,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gin/config": "workspace:*",
     "@gin/core": "workspace:*",
-    "@gin/gateway": "workspace:*",
-    "commander": "^13.0.0"
+    "zod": "^3.24.0",
+    "zod-to-json-schema": "^3.24.0"
   },
   "devDependencies": {
-    "@gin/models": "workspace:*",
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",

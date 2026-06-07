@@ -1,13 +1,16 @@
 {
-  "name": "@gin/cli",
+  "name": "@gin/storage",
   "version": "0.1.0",
-  "description": "The `gin` CLI: onboard, doctor, gateway, agent, message, budget, trace.",
+  "description": "Gin SQLite storage: WAL-mode database handle and namespaced migrations.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "gin": "./dist/index.js"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -18,13 +21,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gin/config": "workspace:*",
     "@gin/core": "workspace:*",
-    "@gin/gateway": "workspace:*",
-    "commander": "^13.0.0"
+    "better-sqlite3": "^12.4.0"
   },
   "devDependencies": {
-    "@gin/models": "workspace:*",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",

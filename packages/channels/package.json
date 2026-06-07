@@ -1,13 +1,16 @@
 {
-  "name": "@gin/cli",
+  "name": "@gin/channels",
   "version": "0.1.0",
-  "description": "The `gin` CLI: onboard, doctor, gateway, agent, message, budget, trace.",
+  "description": "Gin channels: guaranteed-delivery outbox, WebChat and Telegram adapters.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "gin": "./dist/index.js"
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -18,13 +21,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gin/config": "workspace:*",
     "@gin/core": "workspace:*",
-    "@gin/gateway": "workspace:*",
-    "commander": "^13.0.0"
+    "@gin/storage": "workspace:*"
   },
   "devDependencies": {
-    "@gin/models": "workspace:*",
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",

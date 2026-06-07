@@ -26,8 +26,14 @@
   },
   "dependencies": {
     "@fastify/websocket": "^11.0.0",
+    "@gin/channels": "workspace:*",
     "@gin/config": "workspace:*",
     "@gin/core": "workspace:*",
+    "@gin/memory": "workspace:*",
+    "@gin/models": "workspace:*",
+    "@gin/runtime": "workspace:*",
+    "@gin/storage": "workspace:*",
+    "@gin/tools": "workspace:*",
     "fastify": "^5.2.0",
     "zod": "^3.24.0"
   },

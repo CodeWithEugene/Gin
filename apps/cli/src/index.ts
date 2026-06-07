@@ -3,9 +3,11 @@ import { Command } from "commander";
 import { GinConfigSchema, configPath, loadConfig, saveConfig, workspacePath } from "@gin/config";
 import { createGateway } from "@gin/gateway";
 import { mkdirSync } from "node:fs";
+import { GatewayClient, gatewayWsUrl } from "./client.js";
 import { formatDoctorReport, runDoctor } from "./doctor.js";
 
 export { runDoctor, formatDoctorReport, type DoctorReport, type DoctorCheck } from "./doctor.js";
+export { GatewayClient, gatewayWsUrl } from "./client.js";
 
 const program = new Command();
 
@@ -82,6 +84,68 @@ gateway
     } catch {
       console.log(`Gateway is not reachable at ${opts.gatewayUrl}`);
       process.exitCode = 1;
+    }
+  });
+
+const message = program.command("message").description("Exchange messages with the agent");
+
+message
+  .command("send <text>")
+  .description("Send a message to the default agent and print the reply")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .option("--peer <peerRef>", "stable peer id (keeps one conversation per peer)", "cli")
+  .option("--timeout <seconds>", "seconds to wait for the reply", "120")
+  .action(async (text: string, opts: { gatewayUrl: string; peer: string; timeout: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const reply = client.waitForEvent<{ peerRef: string; text: string }>(
+        "webchat.message",
+        (p) => p.peerRef === opts.peer,
+        Number(opts.timeout) * 1000,
+      );
+      const failure = client.waitForEvent<{ peerRef: string; code: string; message: string }>(
+        "webchat.error",
+        (p) => p.peerRef === opts.peer,
+        Number(opts.timeout) * 1000,
+      );
+      await client.call("gin.chat.send", { text, peerRef: opts.peer });
+      const outcome = await Promise.race([
+        reply.then((p) => ({ kind: "reply" as const, ...p })),
+        failure.then((p) => ({ kind: "error" as const, ...p })),
+      ]);
+      if (outcome.kind === "error") {
+        console.error(`Turn failed (${outcome.code}): ${outcome.message}`);
+        process.exitCode = 1;
+      } else {
+        console.log(outcome.text);
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+const agent = program.command("agent").description("Inspect configured agents");
+
+agent
+  .command("list")
+  .description("List agents registered on the gateway")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const agents =
+        await client.call<
+          { id: string; name: string; modelConfig: { primary: string }; workspacePath: string }[]
+        >("gin.agent.list");
+      if (agents.length === 0) {
+        console.log("No agents yet — send a message to create the default agent.");
+        return;
+      }
+      for (const a of agents) {
+        console.log(`${a.name}  ${a.modelConfig.primary}  ${a.workspacePath}  (${a.id})`);
+      }
+    } finally {
+      client.close();
     }
   });
 

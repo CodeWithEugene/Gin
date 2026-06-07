@@ -16,8 +16,10 @@ it shouldn't**:
 
 ## Status
 
-🚧 Early development. Phase 0 (scaffold: gateway, CLI, core schemas, config) is in place.
-See `docs/` and the build phases in the project spec.
+🚧 Early development. Phase 0 (scaffold) and Phase 1 (parity core) are in place: a working
+agent loop with Anthropic + Ollama models, 10 built-in tools, MCP client, FTS5+vector
+memory, persistent sessions, and WebChat + Telegram channels behind a guaranteed-delivery
+outbox. Phase 2 (durable execution + observability cockpit + hard budgets) is next.
 
 ## Quick start (dev)
 
@@ -29,19 +31,38 @@ pnpm test
 # initialize ~/.gin
 node apps/cli/dist/index.js onboard --model anthropic/claude-opus-4-8
 node apps/cli/dist/index.js doctor
-node apps/cli/dist/index.js gateway          # ws://127.0.0.1:18789/ws
+
+# run the daemon (reads ANTHROPIC_API_KEY; Ollama at 127.0.0.1:11434 also works)
+node apps/gateway/dist/index.js              # ws://127.0.0.1:18789/ws
+
+# talk to your agent from another terminal
+node apps/cli/dist/index.js message send "hello, what tools do you have?"
+node apps/cli/dist/index.js agent list
+```
+
+To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
+
+```json
+{ "channels": { "telegram": { "enabled": true, "tokenRef": "env:TELEGRAM_BOT_TOKEN" } } }
 ```
 
 ## Monorepo layout
 
-| Path                  | What                                                |
-| --------------------- | --------------------------------------------------- |
-| `apps/gateway`        | The daemon: control plane, RPC/WS server, event bus |
-| `apps/cli`            | The `gin` CLI (`onboard`, `doctor`, `gateway`, …)   |
-| `apps/command-center` | React workspace UI + observability cockpit _(soon)_ |
-| `packages/core`       | Domain types, Zod schemas, event bus, IDs, errors   |
-| `packages/config`     | Config schema + loader (`~/.gin/gin.json`)          |
-| `packages/durable`    | Durable execution engine _(Phase 2 — the spine)_    |
+| Path                  | What                                                         |
+| --------------------- | ------------------------------------------------------------ |
+| `apps/gateway`        | The daemon: control plane, RPC/WS server, runtime stack      |
+| `apps/cli`            | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …) |
+| `apps/command-center` | React workspace UI + observability cockpit _(soon)_          |
+| `packages/core`       | Domain types, Zod schemas, event bus, IDs, errors            |
+| `packages/config`     | Config schema + loader (`~/.gin/gin.json`)                   |
+| `packages/storage`    | SQLite (WAL) handle + namespaced migrations                  |
+| `packages/models`     | Provider adapters (Anthropic, Ollama), routing, cost meter   |
+| `packages/tools`      | Tool registry (Zod-validated) + 10 built-in tools            |
+| `packages/mcp`        | MCP client (stdio + HTTP) with per-server tool filtering     |
+| `packages/memory`     | Persistent memory: FTS5 + vector hybrid search               |
+| `packages/runtime`    | Agent loop + session/turn/step persistence                   |
+| `packages/channels`   | Outbox (at-least-once, ordered) + WebChat/Telegram           |
+| `packages/durable`    | Durable execution engine _(Phase 2 — the spine)_             |
 
 ## Principles
 

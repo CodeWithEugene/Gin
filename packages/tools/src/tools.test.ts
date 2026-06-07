@@ -1,0 +1,172 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ToolPolicySchema } from "@gin/core";
+import { CORE_TOOLS, registerCoreTools } from "./index.js";
+import { ToolRegistry, type ToolContext } from "./registry.js";
+
+let workspace: string;
+let ctx: ToolContext;
+const registry = registerCoreTools(new ToolRegistry());
+
+beforeEach(() => {
+  workspace = mkdtempSync(join(tmpdir(), "gin-tools-"));
+  ctx = { agentId: "a", sessionId: "s", workspacePath: workspace };
+});
+afterEach(() => rmSync(workspace, { recursive: true, force: true }));
+
+describe("registry", () => {
+  it("registers the 10 core tools", () => {
+    expect(CORE_TOOLS).toHaveLength(10);
+    expect(registry.list().map((t) => t.name)).toContain("fs.read");
+  });
+
+  it("filters by toolset policy and deny-list", () => {
+    const policy = ToolPolicySchema.parse({ enabledToolsets: ["fs"], deniedTools: ["fs.write"] });
+    const names = registry.list(policy).map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(["fs.read", "fs.edit", "fs.list"]));
+    expect(names).not.toContain("fs.write");
+    expect(names).not.toContain("shell.exec");
+  });
+
+  it("rejects calls to policy-disabled tools", async () => {
+    const policy = ToolPolicySchema.parse({ enabledToolsets: ["fs"] });
+    await expect(
+      registry.execute("shell.exec", { command: "true" }, ctx, policy),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("validates arguments with Zod", async () => {
+    await expect(registry.execute("fs.read", { path: 42 }, ctx)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+  });
+
+  it("emits JSON Schema specs for the model layer", () => {
+    const specs = registry.toChatTools();
+    const read = specs.find((s) => s.name === "fs.read")!;
+    expect(read.inputSchema).toMatchObject({ type: "object" });
+    expect((read.inputSchema.properties as Record<string, unknown>).path).toBeDefined();
+  });
+});
+
+describe("fs tools", () => {
+  it("round-trips write → read → list", async () => {
+    await registry.execute("fs.write", { path: "notes/a.txt", content: "hello" }, ctx);
+    const read = (await registry.execute("fs.read", { path: "notes/a.txt" }, ctx)) as {
+      content: string;
+    };
+    expect(read.content).toBe("hello");
+    const list = (await registry.execute("fs.list", { path: "notes" }, ctx)) as {
+      entries: { name: string }[];
+    };
+    expect(list.entries.map((e) => e.name)).toEqual(["a.txt"]);
+  });
+
+  it("edits a unique snippet and rejects ambiguous ones", async () => {
+    writeFileSync(join(workspace, "f.txt"), "one two one");
+    await expect(
+      registry.execute("fs.edit", { path: "f.txt", oldText: "one", newText: "1" }, ctx),
+    ).rejects.toMatchObject({ code: "tool_error" });
+    await registry.execute("fs.edit", { path: "f.txt", oldText: "two", newText: "2" }, ctx);
+    const read = (await registry.execute("fs.read", { path: "f.txt" }, ctx)) as { content: string };
+    expect(read.content).toBe("one 2 one");
+  });
+
+  it("blocks path escapes", async () => {
+    await expect(
+      registry.execute("fs.read", { path: "../outside.txt" }, ctx),
+    ).rejects.toMatchObject({ code: "sandbox_violation" });
+    await expect(
+      registry.execute("fs.write", { path: "/etc/evil", content: "x" }, ctx),
+    ).rejects.toMatchObject({ code: "sandbox_violation" });
+  });
+});
+
+describe("shell.exec", () => {
+  it("runs in the workspace and captures output", async () => {
+    writeFileSync(join(workspace, "x.txt"), "");
+    const result = (await registry.execute("shell.exec", { command: "ls" }, ctx)) as {
+      exitCode: number;
+      stdout: string;
+    };
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("x.txt");
+  });
+
+  it("reports non-zero exit codes instead of throwing", async () => {
+    const result = (await registry.execute("shell.exec", { command: "exit 3" }, ctx)) as {
+      exitCode: number;
+    };
+    expect(result.exitCode).toBe(3);
+  });
+});
+
+describe("http.fetch", () => {
+  it("returns status and body via the injected fetch", async () => {
+    ctx.fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        new Response("pong", { status: 200, headers: { "content-type": "text/plain" } }),
+      );
+    const result = (await registry.execute(
+      "http.fetch",
+      { url: "https://example.com/ping" },
+      ctx,
+    )) as {
+      status: number;
+      body: string;
+    };
+    expect(result).toMatchObject({ status: 200, body: "pong" });
+  });
+
+  it("rejects non-http URLs at validation", async () => {
+    await expect(
+      registry.execute("http.fetch", { url: "file:///etc/passwd" }, ctx),
+    ).rejects.toMatchObject({ code: "tool_error" });
+  });
+});
+
+describe("memory + messaging ports", () => {
+  it("delegates memory.store/search to the context port", async () => {
+    const store = vi.fn().mockResolvedValue("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    const search = vi.fn().mockResolvedValue([{ id: "m1", text: "likes tea", score: 0.9 }]);
+    ctx.memory = { store, search };
+
+    await registry.execute("memory.store", { text: "User likes tea" }, ctx);
+    expect(store).toHaveBeenCalledWith("User likes tea", "fact");
+
+    const result = (await registry.execute("memory.search", { query: "tea" }, ctx)) as {
+      results: unknown[];
+    };
+    expect(result.results).toHaveLength(1);
+    expect(search).toHaveBeenCalledWith("tea", 5);
+  });
+
+  it("fails cleanly when ports are missing", async () => {
+    await expect(registry.execute("memory.store", { text: "x" }, ctx)).rejects.toMatchObject({
+      code: "tool_error",
+    });
+    await expect(registry.execute("sessions.send", { text: "hi" }, ctx)).rejects.toMatchObject({
+      code: "tool_error",
+    });
+  });
+
+  it("sends interim messages through the channel port", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    ctx.sendMessage = sendMessage;
+    await registry.execute("sessions.send", { text: "working on it" }, ctx);
+    expect(sendMessage).toHaveBeenCalledWith("working on it");
+  });
+});
+
+describe("time.now", () => {
+  it("returns ISO and epoch forms", async () => {
+    const result = (await registry.execute("time.now", {}, ctx)) as {
+      iso: string;
+      epochMs: number;
+    };
+    expect(new Date(result.iso).getTime()).toBe(result.epochMs);
+  });
+});
