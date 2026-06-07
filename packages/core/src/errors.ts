@@ -13,6 +13,7 @@ export type GinErrorCode =
   | "budget_exceeded"
   | "provider_error"
   | "provider_rate_limited"
+  | "rate_limited"
   | "tool_error"
   | "channel_error"
   | "delivery_failed"
@@ -62,6 +63,7 @@ function defaultRetryable(code: GinErrorCode): boolean {
   switch (code) {
     case "provider_error":
     case "provider_rate_limited":
+    case "rate_limited":
     case "channel_error":
     case "delivery_failed":
     case "timeout":

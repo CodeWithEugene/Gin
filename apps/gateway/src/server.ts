@@ -20,6 +20,8 @@ export interface GatewayOptions {
   principal?: Principal;
   /** Serve the Command Center SPA from this directory at "/". */
   uiDir?: string;
+  /** Per-connection RPC rate limit (token bucket). */
+  rateLimit?: { capacity: number; refillPerSec: number };
 }
 
 export interface Gateway {
@@ -48,9 +50,34 @@ interface RpcContext {
 }
 
 const ChatSendSchema = z.object({
-  text: z.string().min(1),
-  peerRef: z.string().min(1).optional(),
+  text: z.string().min(1).max(32_000),
+  peerRef: z.string().min(1).max(200).optional(),
 });
+
+/** Per-connection token bucket: bursts are fine, sustained floods are not. */
+class TokenBucket {
+  private tokens: number;
+  private lastRefill = Date.now();
+
+  constructor(
+    private readonly capacity: number,
+    private readonly refillPerSec: number,
+  ) {
+    this.tokens = capacity;
+  }
+
+  take(): boolean {
+    const now = Date.now();
+    this.tokens = Math.min(
+      this.capacity,
+      this.tokens + ((now - this.lastRefill) / 1000) * this.refillPerSec,
+    );
+    this.lastRefill = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+}
 
 const SessionListSchema = z.object({ agentId: z.string().optional() }).optional();
 
@@ -440,7 +467,8 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
   };
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
-  void app.register(websocket);
+  // 512KB frame cap: nothing in the protocol needs more, floods need less.
+  void app.register(websocket, { options: { maxPayload: 512 * 1024 } });
   void app.register(async (instance) => {
     instance.get("/ws", { websocket: true }, (socket, req) => {
       const connectionPrincipal = resolvePrincipal(req);
@@ -450,6 +478,10 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
       }
       const closers: Array<() => void> = [];
       const boundPeers = new Set<string>();
+      const bucket = new TokenBucket(
+        opts.rateLimit?.capacity ?? 60,
+        opts.rateLimit?.refillPerSec ?? 20,
+      );
       const ctx: RpcContext = {
         bus,
         connectionId: newId(),
@@ -497,6 +529,10 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
             return;
           }
           frameId = frame.data.id;
+          if (!bucket.take()) {
+            ctx.push(fail(frameId, "rate_limited", "Too many requests on this connection."));
+            return;
+          }
           const handler = methods.get(frame.data.method);
           if (!handler) {
             ctx.push(fail(frameId, "not_found", `Unknown method: ${frame.data.method}`));

@@ -8,7 +8,7 @@ import { webSearch } from "./core/search.js";
 export * from "./registry.js";
 export { fsEdit, fsList, fsRead, fsWrite, resolveInWorkspace } from "./core/fs.js";
 export { shellExec } from "./core/shell.js";
-export { httpFetch } from "./core/http.js";
+export { httpFetch, isPrivateHost } from "./core/http.js";
 export { memorySearch, memoryStore, sessionsSend, timeNow } from "./core/misc.js";
 export { webSearch, parseDuckDuckGoHtml, type SearchResult } from "./core/search.js";
 

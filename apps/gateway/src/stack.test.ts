@@ -393,6 +393,47 @@ describe("Phase 5: API-key auth", () => {
   });
 });
 
+describe("hardening", () => {
+  it("rate-limits a flooding connection without killing it", async () => {
+    const limited = createGateway({
+      port: 0,
+      stack,
+      rateLimit: { capacity: 5, refillPerSec: 0.001 },
+    });
+    await limited.start();
+    try {
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${limited.address.port}/ws`);
+        socket.on("open", () => resolve(socket));
+        socket.on("error", reject);
+      });
+      const results = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => rpc(ws, "gin.ping", { i })),
+      );
+      const ok = results.filter((r) => r.ok).length;
+      const limitedCount = results.filter(
+        (r) => (r.error as { code?: string } | undefined)?.code === "rate_limited",
+      ).length;
+      expect(ok).toBe(5);
+      expect(limitedCount).toBe(5);
+
+      // The connection survives — it is throttled, not dropped.
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+      ws.close();
+    } finally {
+      await limited.stop();
+    }
+  });
+
+  it("caps chat text length at the schema layer", async () => {
+    const ws = await connect();
+    const res = await rpc(ws, "gin.chat.send", { text: "x".repeat(40_000) });
+    expect(res.ok).toBe(false);
+    expect((res.error as { code: string }).code).toBe("validation_failed");
+    ws.close();
+  });
+});
+
 describe("resolveSecret", () => {
   it("resolves env refs and rejects raw values", () => {
     process.env.GIN_TEST_SECRET = "tok123";

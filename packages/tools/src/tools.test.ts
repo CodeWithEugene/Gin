@@ -127,6 +127,50 @@ describe("http.fetch", () => {
       registry.execute("http.fetch", { url: "file:///etc/passwd" }, ctx),
     ).rejects.toMatchObject({ code: "tool_error" });
   });
+
+  it("refuses private, loopback, link-local, and metadata hosts (SSRF guard)", async () => {
+    ctx.fetchImpl = vi.fn(); // must never be called
+    for (const url of [
+      "http://127.0.0.1:18789/ws",
+      "http://localhost/admin",
+      "http://10.0.0.5/",
+      "http://192.168.1.1/router",
+      "http://172.20.3.4/",
+      "http://169.254.169.254/latest/meta-data/", // cloud metadata
+      "http://metadata.google.internal/computeMetadata/v1/",
+      "http://nas.local/",
+      "http://[::1]:8080/",
+      "http://[fd00::1]/",
+    ]) {
+      await expect(registry.execute("http.fetch", { url }, ctx)).rejects.toMatchObject({
+        code: "sandbox_violation",
+      });
+    }
+    expect(ctx.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("public hosts pass the SSRF guard", async () => {
+    const { isPrivateHost } = await import("./index.js");
+    expect(isPrivateHost("example.com")).toBe(false);
+    expect(isPrivateHost("8.8.8.8")).toBe(false);
+    expect(isPrivateHost("172.32.0.1")).toBe(false); // just outside 172.16/12
+    expect(isPrivateHost("2606:4700::6810:84e5")).toBe(false);
+  });
+
+  it("GIN_ALLOW_PRIVATE_HTTP=1 opts out for homelab use", async () => {
+    process.env.GIN_ALLOW_PRIVATE_HTTP = "1";
+    try {
+      ctx.fetchImpl = vi.fn().mockResolvedValue(new Response("lan", { status: 200 }));
+      const result = (await registry.execute(
+        "http.fetch",
+        { url: "http://192.168.1.10/api" },
+        ctx,
+      )) as { body: string };
+      expect(result.body).toBe("lan");
+    } finally {
+      delete process.env.GIN_ALLOW_PRIVATE_HTTP;
+    }
+  });
 });
 
 describe("web.search", () => {
