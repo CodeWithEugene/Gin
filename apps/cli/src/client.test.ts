@@ -31,6 +31,7 @@ beforeEach(async () => {
   stack = await buildStack({
     config: GinConfigSchema.parse({ agent: { model: "fake/echo", workspace } }),
     dbPath: ":memory:",
+    homeDir: workspace,
     router: new ModelRouter().register(new EchoProvider()),
   });
   gateway = createGateway({ port: 0, stack });

@@ -36,9 +36,13 @@
     "@gin/models": "workspace:*",
     "@gin/observability": "workspace:*",
     "@gin/runtime": "workspace:*",
+    "@gin/sandbox": "workspace:*",
+    "@gin/scheduler": "workspace:*",
+    "@gin/skills": "workspace:*",
     "@gin/storage": "workspace:*",
     "@gin/tools": "workspace:*",
     "@gin/verifier": "workspace:*",
+    "@gin/workflows": "workspace:*",
     "fastify": "^5.2.0",
     "zod": "^3.24.0"
   },

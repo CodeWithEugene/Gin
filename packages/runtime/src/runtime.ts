@@ -10,6 +10,8 @@ import {
 import type { BudgetEngine, BudgetScopes } from "@gin/cost";
 import type { ApprovalBroker } from "@gin/governance";
 import type { MemoryStore } from "@gin/memory";
+import { executorFor, type SandboxExecutor } from "@gin/sandbox";
+import type { SkillStore } from "@gin/skills";
 import {
   resultText,
   toolUses,
@@ -46,6 +48,10 @@ export interface AgentRuntimeOptions {
   };
   /** Anti-silent-failure verification of the final reply (Phase 3). */
   verifier?: Verifier;
+  /** Sandbox executor overrides per mode (tests / custom backends). */
+  sandboxExecutors?: Partial<Record<Agent["sandboxMode"], SandboxExecutor>>;
+  /** Skill store: metas disclosed in the system prompt, bodies on demand. */
+  skills?: SkillStore;
   /** Hard cap on model-call iterations per turn (runaway-loop backstop). */
   maxIterations?: number;
   /** History window assembled into each model call. */
@@ -93,6 +99,9 @@ export class AgentRuntime {
   private readonly budget: BudgetEngine | undefined;
   private readonly approvals: AgentRuntimeOptions["approvals"];
   private readonly verifier: Verifier | undefined;
+  private readonly sandboxExecutors: NonNullable<AgentRuntimeOptions["sandboxExecutors"]>;
+  private readonly executorCache = new Map<string, SandboxExecutor>();
+  private readonly skills: SkillStore | undefined;
   private readonly maxIterations: number;
   private readonly historyLimit: number;
   private readonly compactAfter: number;
@@ -107,6 +116,8 @@ export class AgentRuntime {
     this.budget = opts.budget;
     this.approvals = opts.approvals;
     this.verifier = opts.verifier;
+    this.sandboxExecutors = opts.sandboxExecutors ?? {};
+    this.skills = opts.skills;
     this.maxIterations = opts.maxIterations ?? 16;
     this.historyLimit = opts.historyLimit ?? 40;
     this.compactAfter = opts.compactAfter ?? 60;
@@ -142,11 +153,19 @@ export class AgentRuntime {
     let totalCost = 0;
     let stepCount = 0;
 
+    const executor = this.executorForAgent(agent);
     const ctx: ToolContext = {
       agentId: agent.id,
       sessionId: session.id,
       workspacePath: agent.workspacePath,
+      ...(executor
+        ? {
+            exec: (req: { command: string; timeoutMs: number }) =>
+              executor.exec({ ...req, workspacePath: agent.workspacePath }),
+          }
+        : {}),
       ...(this.memory ? { memory: this.memoryPort(agent.id) } : {}),
+      ...(this.skills ? { skills: this.skills } : {}),
       ...(input.sendMessage !== undefined ? { sendMessage: input.sendMessage } : {}),
     };
 
@@ -350,6 +369,19 @@ export class AgentRuntime {
     };
   }
 
+  /** Host mode keeps the tool's built-in sh; other modes get a sandbox. */
+  private executorForAgent(agent: Agent): SandboxExecutor | undefined {
+    const override = this.sandboxExecutors[agent.sandboxMode];
+    if (override) return override;
+    if (agent.sandboxMode === "host") return undefined;
+    let executor = this.executorCache.get(agent.sandboxMode);
+    if (!executor) {
+      executor = executorFor(agent.sandboxMode);
+      this.executorCache.set(agent.sandboxMode, executor);
+    }
+    return executor;
+  }
+
   /** Materialize the agent's budget policy as engine rows (never overwrites). */
   private ensureBudgets(agent: Agent, sessionId: string): void {
     if (!this.budget) return;
@@ -497,6 +529,10 @@ export class AgentRuntime {
     parts.push(agent.persona.trim() || `You are ${agent.name}, a helpful autonomous agent.`);
     if (summary) {
       parts.push(`<conversation_summary>\n${summary}\n</conversation_summary>`);
+    }
+    if (this.skills) {
+      const section = this.skills.promptSection();
+      if (section) parts.push(section);
     }
     if (this.memory) {
       const hits = await this.memory.search(agent.id, userText, { limit: 5 });

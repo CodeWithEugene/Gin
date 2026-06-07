@@ -25,8 +25,12 @@ budgets** enforced _before_ each model call (`gin budget`), with automatic sessi
 compaction; and the governance plane — **RBAC scopes**, **durable approval gates** for
 high-risk tools (`gin approvals`), an **append-only audit log** (`gin audit`), tool
 output contracts, and the **anti-silent-failure verifier** ("0 rows affected" is never
-reported as "done"). Phase 4 (reach & depth: more channels, sandboxing, skills, voice)
-is next.
+reported as "done"). Phase 4's first slice is in too: **Docker sandboxing** for tool
+execution (per-agent `sandboxMode`), **self-improving skills** (SKILL.md with
+progressive disclosure — `gin skills`), a **declarative workflow DSL** compiled onto the
+durable engine (`gin workflow`, specs in `~/.gin/workflows/*.json`), a **cron scheduler**
+driving turns and workflows (`gin schedule`), and a **Slack** channel (Socket Mode)
+alongside WebChat and Telegram.
 
 ## Quick start (dev)
 
@@ -74,6 +78,10 @@ To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
 | `packages/observability` | Trace store: step-level glass-box timelines from the bus      |
 | `packages/governance`    | RBAC scopes, append-only audit log, durable approval gates    |
 | `packages/verifier`      | Anti-silent-failure turn verification, pluggable rules        |
+| `packages/sandbox`       | Execution backends: host + Docker (ephemeral, no network)     |
+| `packages/skills`        | SKILL.md store: progressive disclosure + skills.save          |
+| `packages/workflows`     | Declarative DSL (tool/model/approval steps) on durable        |
+| `packages/scheduler`     | Cron jobs → agent turns or workflows, with heartbeats         |
 
 ## Principles
 

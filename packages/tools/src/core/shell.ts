@@ -3,9 +3,9 @@ import { execFile } from "node:child_process";
 import type { ToolDefinition } from "../registry.js";
 
 /**
- * Shell execution in the agent workspace. Phase 1 runs on the host with a
- * timeout and output cap; the sandbox package (Docker/SSH backends) takes
- * over execution in Phase 4 without changing this tool's contract.
+ * Shell execution in the agent workspace. When the runtime wires a sandbox
+ * executor (ctx.exec — Docker etc., per agent.sandboxMode), commands run
+ * there; otherwise host /bin/sh. The tool contract is identical either way.
  */
 
 const MAX_OUTPUT = 64 * 1024;
@@ -23,6 +23,9 @@ export const shellExec: ToolDefinition<
     timeoutMs: z.number().int().positive().max(300_000).default(60_000),
   }),
   execute(args, ctx) {
+    if (ctx.exec) {
+      return ctx.exec({ command: args.command, timeoutMs: args.timeoutMs });
+    }
     return new Promise((resolvePromise) => {
       execFile(
         "/bin/sh",

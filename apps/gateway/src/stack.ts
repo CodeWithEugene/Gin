@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   ChannelManager,
   Outbox,
+  SlackAdapter,
   TelegramAdapter,
   WebChatAdapter,
   type DmPolicy,
@@ -16,9 +17,13 @@ import { HashEmbedder, MemoryStore } from "@gin/memory";
 import { AnthropicProvider, ModelRouter, OllamaProvider } from "@gin/models";
 import { TraceStore } from "@gin/observability";
 import { AgentRuntime, SessionStore } from "@gin/runtime";
+import { Scheduler } from "@gin/scheduler";
+import { SkillStore, registerSkillTools } from "@gin/skills";
 import { openDatabase, type GinDatabase } from "@gin/storage";
 import { ToolRegistry, registerCoreTools } from "@gin/tools";
 import { Verifier } from "@gin/verifier";
+import { WorkflowRunner } from "@gin/workflows";
+import { readFileSync, readdirSync } from "node:fs";
 
 /**
  * The full runtime stack behind the Gateway: storage, models, tools, memory,
@@ -43,6 +48,9 @@ export interface GatewayStack {
   approvals: ApprovalBroker;
   audit: AuditLog;
   rbac: Rbac;
+  skills: SkillStore;
+  workflows: WorkflowRunner;
+  scheduler: Scheduler;
   config: GinConfig;
   defaultAgent: Agent;
   close(): Promise<void>;
@@ -52,6 +60,8 @@ export interface BuildStackOptions {
   config: GinConfig;
   /** Defaults to ~/.gin/gin.db; use ":memory:" in tests. */
   dbPath?: string;
+  /** Gin home for skills/workflows dirs; defaults to ~/.gin ($GIN_HOME). */
+  homeDir?: string;
   bus?: EventBus;
   /** Test override — defaults to Anthropic (if keyed) + Ollama. */
   router?: ModelRouter;
@@ -60,13 +70,15 @@ export interface BuildStackOptions {
 export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack> {
   const config = opts.config;
   const bus = opts.bus ?? new EventBus();
-  const db = openDatabase({ path: opts.dbPath ?? join(ginHome(), "gin.db") });
+  const home = opts.homeDir ?? ginHome();
+  const db = openDatabase({ path: opts.dbPath ?? join(home, "gin.db") });
 
   const store = new SessionStore(db);
   // HashEmbedder keeps the vector path alive with zero dependencies; FTS5
   // carries recall. Swapping in OllamaEmbedder is a config change later.
   const memory = new MemoryStore(db, { embedder: new HashEmbedder() });
-  const registry = registerCoreTools(new ToolRegistry());
+  const skills = new SkillStore(join(home, "skills"));
+  const registry = registerSkillTools(registerCoreTools(new ToolRegistry()));
 
   const router = opts.router ?? defaultRouter();
 
@@ -98,8 +110,41 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
         }
       : {}),
     ...(config.governance.verifier.enabled ? { verifier: new Verifier() } : {}),
+    skills,
   });
   const defaultAgent = ensureDefaultAgent(store, config);
+
+  // Phase 4: declarative workflows (specs from ~/.gin/workflows/*.json) and
+  // the scheduler that drives turns/workflows on cron.
+  const workflows = new WorkflowRunner({
+    durable,
+    registry,
+    router,
+    defaultModelRef: defaultAgent.modelConfig.primary,
+    toolContext: {
+      agentId: defaultAgent.id,
+      sessionId: "workflow",
+      workspacePath: defaultAgent.workspacePath,
+      skills,
+    },
+    budget,
+    approvals,
+  });
+  loadWorkflowSpecs(workflows, join(home, "workflows"), bus);
+
+  const scheduler = new Scheduler(db, {
+    bus,
+    onMessage: async (text, jobName) => {
+      const result = await runtime.runTurn({
+        agentId: defaultAgent.id,
+        userText: text,
+        channelId: "scheduler",
+        peerRef: `job:${jobName}`,
+      });
+      return result.text;
+    },
+    onWorkflow: async (workflow, input) => (await workflows.start(workflow, input)).output,
+  });
 
   const outbox = new Outbox(db);
   const webchat = new WebChatAdapter();
@@ -126,6 +171,7 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
 
   await manager.register(webchat);
   await registerTelegram(manager, config, bus);
+  await registerSlack(manager, config, bus);
 
   return {
     bus,
@@ -143,14 +189,58 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
     approvals,
     audit,
     rbac,
+    skills,
+    workflows,
+    scheduler,
     config,
     defaultAgent,
     async close() {
+      scheduler.stop();
       await manager.stop();
       traces.detach();
       db.close();
     },
   };
+}
+
+/** Load *.json workflow specs; a malformed spec is reported, never fatal. */
+function loadWorkflowSpecs(runner: WorkflowRunner, dir: string, bus: EventBus): void {
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+  } catch {
+    return; // no workflows dir yet
+  }
+  for (const file of files) {
+    try {
+      runner.register(JSON.parse(readFileSync(join(dir, file), "utf8")));
+    } catch (err) {
+      bus.emit("workflow.spec_invalid", {
+        file,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function registerSlack(
+  manager: ChannelManager,
+  config: GinConfig,
+  bus: EventBus,
+): Promise<void> {
+  const slack = config.channels.slack;
+  if (!slack?.enabled) return;
+  const botToken = resolveSecret(slack.tokenRef);
+  const appToken = resolveSecret(slack.appTokenRef);
+  if (!botToken || !appToken) {
+    bus.emit("channel.error", {
+      channelId: "slack",
+      message:
+        'Slack enabled but tokens not resolvable. Set tokenRef ("env:SLACK_BOT_TOKEN") and appTokenRef ("env:SLACK_APP_TOKEN").',
+    });
+    return;
+  }
+  await manager.register(new SlackAdapter({ botToken, appToken }));
 }
 
 function defaultRouter(): ModelRouter {

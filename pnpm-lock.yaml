@@ -86,6 +86,15 @@ importers:
       "@gin/runtime":
         specifier: workspace:*
         version: link:../../packages/runtime
+      "@gin/sandbox":
+        specifier: workspace:*
+        version: link:../../packages/sandbox
+      "@gin/scheduler":
+        specifier: workspace:*
+        version: link:../../packages/scheduler
+      "@gin/skills":
+        specifier: workspace:*
+        version: link:../../packages/skills
       "@gin/storage":
         specifier: workspace:*
         version: link:../../packages/storage
@@ -95,6 +104,9 @@ importers:
       "@gin/verifier":
         specifier: workspace:*
         version: link:../../packages/verifier
+      "@gin/workflows":
+        specifier: workspace:*
+        version: link:../../packages/workflows
       fastify:
         specifier: ^5.2.0
         version: 5.8.5
@@ -379,6 +391,12 @@ importers:
       "@gin/models":
         specifier: workspace:*
         version: link:../models
+      "@gin/sandbox":
+        specifier: workspace:*
+        version: link:../sandbox
+      "@gin/skills":
+        specifier: workspace:*
+        version: link:../skills
       "@gin/storage":
         specifier: workspace:*
         version: link:../storage
@@ -388,6 +406,75 @@ importers:
       "@gin/verifier":
         specifier: workspace:*
         version: link:../verifier
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/sandbox:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/scheduler:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
+      croner:
+        specifier: ^9.0.0
+        version: 9.1.0
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/skills:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/tools":
+        specifier: workspace:*
+        version: link:../tools
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -461,6 +548,46 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/workflows:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/cost":
+        specifier: workspace:*
+        version: link:../cost
+      "@gin/durable":
+        specifier: workspace:*
+        version: link:../durable
+      "@gin/governance":
+        specifier: workspace:*
+        version: link:../governance
+      "@gin/models":
+        specifier: workspace:*
+        version: link:../models
+      "@gin/tools":
+        specifier: workspace:*
+        version: link:../tools
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
       "@types/node":
         specifier: ^24.0.0
         version: 24.13.1
@@ -1590,6 +1717,13 @@ packages:
         integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==,
       }
     engines: { node: ">= 0.10" }
+
+  croner@9.1.0:
+    resolution:
+      {
+        integrity: sha512-p9nwwR4qyT5W996vBZhdvBCnMhicY5ytZkR4D1Xj0wuTDEiMnjwR57Q3RXYY/s0EpX6Ay3vgIcfaR+ewGHsi+g==,
+      }
+    engines: { node: ">=18.0" }
 
   cross-spawn@7.0.6:
     resolution:
@@ -3545,6 +3679,8 @@ snapshots:
     dependencies:
       object-assign: 4.1.1
       vary: 1.1.2
+
+  croner@9.1.0: {}
 
   cross-spawn@7.0.6:
     dependencies:

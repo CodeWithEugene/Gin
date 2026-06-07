@@ -26,6 +26,9 @@ export const DEFAULT_ROLES: Record<string, Scope[]> = {
     "budget:read",
     "approvals:read",
     "audit:read",
+    "schedule:read",
+    "workflows:read",
+    "skills:read",
   ],
 };
 

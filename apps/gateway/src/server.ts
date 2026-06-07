@@ -89,8 +89,32 @@ const AuditListSchema = z
   })
   .optional();
 
+const ScheduleSetSchema = z.object({
+  name: z.string().min(1),
+  cron: z.string().min(1),
+  action: z.union([
+    z.object({ kind: z.literal("message"), text: z.string().min(1) }),
+    z.object({
+      kind: z.literal("workflow"),
+      workflow: z.string().min(1),
+      input: z.unknown().optional(),
+    }),
+  ]),
+  enabled: z.boolean().optional(),
+});
+
+const ScheduleDeleteSchema = z.object({ name: z.string().min(1) });
+
+const WorkflowRunSchema = z.object({ name: z.string().min(1), input: z.unknown().optional() });
+
 /** RBAC scope required per RPC method; unlisted methods are open. */
 const METHOD_SCOPES: Record<string, string> = {
+  "gin.schedule.list": "schedule:read",
+  "gin.schedule.set": "schedule:write",
+  "gin.schedule.delete": "schedule:write",
+  "gin.workflow.list": "workflows:read",
+  "gin.workflow.run": "workflows:run",
+  "gin.skill.list": "skills:read",
   "gin.agent.list": "agents:read",
   "gin.session.list": "sessions:read",
   "gin.chat.send": "chat:send",
@@ -135,6 +159,45 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
   });
 
   if (stack) {
+    // ── Phase 4: schedule, workflows, skills ─────────────────────────────────
+    methods.set("gin.schedule.list", () => stack.scheduler.list());
+    methods.set("gin.schedule.set", (params, ctx) => {
+      const parsed = ScheduleSetSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new GinError("validation_failed", "gin.schedule.set needs { name, cron, action }");
+      }
+      const job = stack.scheduler.setJob(parsed.data);
+      stack.audit.append({
+        actor: ctx.principal.name,
+        action: "schedule.set",
+        target: `job/${job.name}`,
+        after: { cron: job.cron, action: job.action, enabled: job.enabled },
+      });
+      return job;
+    });
+    methods.set("gin.schedule.delete", (params, ctx) => {
+      const parsed = ScheduleDeleteSchema.safeParse(params);
+      if (!parsed.success)
+        throw new GinError("validation_failed", "gin.schedule.delete needs { name }");
+      const deleted = stack.scheduler.delete(parsed.data.name);
+      if (deleted) {
+        stack.audit.append({
+          actor: ctx.principal.name,
+          action: "schedule.delete",
+          target: `job/${parsed.data.name}`,
+        });
+      }
+      return { deleted };
+    });
+    methods.set("gin.workflow.list", () => stack.workflows.list());
+    methods.set("gin.workflow.run", async (params) => {
+      const parsed = WorkflowRunSchema.safeParse(params);
+      if (!parsed.success)
+        throw new GinError("validation_failed", "gin.workflow.run needs { name, input? }");
+      return stack.workflows.start(parsed.data.name, parsed.data.input ?? {});
+    });
+    methods.set("gin.skill.list", () => stack.skills.list());
+
     // ── Phase 3: approvals & audit ───────────────────────────────────────────
     methods.set("gin.approval.list", (params) => {
       const parsed = ApprovalListSchema.safeParse(params ?? undefined);
@@ -382,6 +445,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
       const addr = app.server.address();
       if (addr && typeof addr === "object") gateway.address = { port: addr.port, host };
       stack?.manager.startPump(200);
+      stack?.scheduler.start();
       bus.emit("gateway.started", { port: gateway.address.port, host });
     },
     async stop() {

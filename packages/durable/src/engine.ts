@@ -94,6 +94,16 @@ export class CrashSignal extends Error {
   }
 }
 
+/** Find a CrashSignal anywhere in an error-cause chain (wrappers preserve it). */
+export function findCrashSignal(err: unknown): CrashSignal | undefined {
+  let cursor: unknown = err;
+  for (let depth = 0; depth < 10 && cursor; depth++) {
+    if (cursor instanceof CrashSignal) return cursor;
+    cursor = (cursor as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 export interface DurableEngineOptions {
   bus?: EventBus;
   /** Injectable retry delay (tests pass a no-op). */
@@ -163,7 +173,8 @@ export class DurableEngine {
       try {
         results.push(await this.resume(row.id));
       } catch (err) {
-        if (err instanceof CrashSignal) throw err;
+        const crash = findCrashSignal(err);
+        if (crash) throw crash;
         // Terminal failure is a recorded outcome, not a recovery error.
         const record = this.get(row.id);
         if (record) results.push(record);
@@ -268,7 +279,8 @@ export class DurableEngine {
         this.bus.emit("workflow.completed", { workflowId, name: record.name });
         return this.get(workflowId)!;
       } catch (err) {
-        if (err instanceof CrashSignal) throw err; // leave 'running' — resume later
+        const crash = findCrashSignal(err);
+        if (crash) throw crash; // leave 'running' — resume later
         const ginError = toGinError(err, "workflow_failed");
         this.append(workflowId, "step_failed", {
           index: stepIndex - 1,
@@ -305,7 +317,8 @@ export class DurableEngine {
       try {
         return await fn();
       } catch (err) {
-        if (err instanceof CrashSignal) throw err;
+        const crash = findCrashSignal(err);
+        if (crash) throw crash;
         lastError = err;
         const retryable = isGinError(err) ? err.retryable : false;
         if (!retryable || attempt === maxAttempts) break;

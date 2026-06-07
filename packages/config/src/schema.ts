@@ -35,8 +35,10 @@ export const ChannelConfigSchema = z.object({
   enabled: z.boolean().default(false),
   dmPolicy: z.enum(["pairing", "allowlist", "open"]).default("pairing"),
   allowFrom: z.array(z.string()).default([]),
-  /** Secret reference, e.g. "keychain:telegram-bot-token" — never a raw token. */
+  /** Secret reference, e.g. "env:TELEGRAM_BOT_TOKEN" — never a raw token. */
   tokenRef: z.string().optional(),
+  /** Second secret for channels that need one (Slack app-level token). */
+  appTokenRef: z.string().optional(),
 });
 
 export const GovernanceConfigSchema = z.object({

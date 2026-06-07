@@ -14,13 +14,39 @@ export interface ToolMemoryPort {
   search(query: string, limit: number): Promise<{ id: string; text: string; score: number }[]>;
 }
 
+export interface ExecPort {
+  (req: { command: string; timeoutMs: number }): Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+  }>;
+}
+
+export interface SkillMetaLike {
+  slug: string;
+  name: string;
+  description: string;
+  version: string;
+}
+
+export interface ToolSkillsPort {
+  list(): SkillMetaLike[];
+  read(slug: string): { meta: SkillMetaLike; body: string };
+  save(input: { slug: string; name?: string; description: string; body: string }): SkillMetaLike;
+}
+
 export interface ToolContext {
   agentId: string;
   sessionId: string;
   /** Absolute path; fs.* and shell.* are rooted here. */
   workspacePath: string;
+  /** Sandboxed executor (Docker etc.); shell.exec falls back to host sh. */
+  exec?: ExecPort;
   /** Wired by the runtime when a memory store is attached to the agent. */
   memory?: ToolMemoryPort;
+  /** Wired by the runtime when a skill store is attached. */
+  skills?: ToolSkillsPort;
   /** Wired by the runtime to deliver a message to the session's channel. */
   sendMessage?: (text: string) => Promise<void>;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;

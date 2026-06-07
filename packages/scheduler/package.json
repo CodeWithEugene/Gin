@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/scheduler",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin scheduler: cron jobs that drive agent turns and durable workflows, with heartbeats.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,16 +22,8 @@
   },
   "dependencies": {
     "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/governance": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/sandbox": "workspace:*",
-    "@gin/skills": "workspace:*",
     "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "@gin/verifier": "workspace:*",
-    "zod": "^3.24.0"
+    "croner": "^9.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

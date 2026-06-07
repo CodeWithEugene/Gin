@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/sandbox",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin sandboxed execution: host and Docker backends behind one executor interface.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,17 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/governance": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/sandbox": "workspace:*",
-    "@gin/skills": "workspace:*",
-    "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "@gin/verifier": "workspace:*",
-    "zod": "^3.24.0"
+    "@gin/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

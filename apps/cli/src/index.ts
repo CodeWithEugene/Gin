@@ -379,6 +379,152 @@ program
     }
   });
 
+const schedule = program.command("schedule").description("Manage cron jobs for the agent");
+
+schedule
+  .command("list")
+  .description("List scheduled jobs")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const jobs = await client.call<
+        {
+          name: string;
+          cron: string;
+          enabled: boolean;
+          nextRunAt?: number;
+          lastStatus?: string;
+          action: { kind: string };
+        }[]
+      >("gin.schedule.list");
+      if (jobs.length === 0) {
+        console.log("No scheduled jobs. Add one with `gin schedule set`.");
+        return;
+      }
+      for (const j of jobs) {
+        const next = j.nextRunAt ? new Date(j.nextRunAt).toISOString() : "-";
+        console.log(
+          `${j.name.padEnd(20)}  ${j.cron.padEnd(14)}  ${j.action.kind.padEnd(8)}  ` +
+            `${j.enabled ? "on " : "off"}  next ${next}  ${j.lastStatus ?? ""}`,
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+schedule
+  .command("set <name> <cron> <text...>")
+  .description(
+    'Schedule a message to the agent, e.g.: gin schedule set brief "0 7 * * *" Summarize my inbox',
+  )
+  .option("--workflow", "treat <text> as a workflow name instead of a message")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(
+    async (
+      name: string,
+      cron: string,
+      text: string[],
+      opts: { workflow?: boolean; gatewayUrl: string },
+    ) => {
+      const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+      try {
+        const action = opts.workflow
+          ? { kind: "workflow", workflow: text.join(" ") }
+          : { kind: "message", text: text.join(" ") };
+        const job = await client.call<{ name: string; nextRunAt?: number }>("gin.schedule.set", {
+          name,
+          cron,
+          action,
+        });
+        const next = job.nextRunAt ? new Date(job.nextRunAt).toISOString() : "?";
+        console.log(`Scheduled "${job.name}" — next run ${next}`);
+      } finally {
+        client.close();
+      }
+    },
+  );
+
+schedule
+  .command("delete <name>")
+  .description("Delete a scheduled job")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (name: string, opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const result = await client.call<{ deleted: boolean }>("gin.schedule.delete", { name });
+      console.log(result.deleted ? `Deleted "${name}".` : `No job named "${name}".`);
+    } finally {
+      client.close();
+    }
+  });
+
+const skills = program.command("skills").description("Inspect the agent's skills");
+
+skills
+  .command("list")
+  .description("List available skills")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const list =
+        await client.call<{ slug: string; version: string; description: string }[]>(
+          "gin.skill.list",
+        );
+      if (list.length === 0) {
+        console.log("No skills yet. The agent saves them with skills.save as it learns.");
+        return;
+      }
+      for (const s of list) console.log(`${s.slug}@${s.version}  ${s.description}`);
+    } finally {
+      client.close();
+    }
+  });
+
+const workflow = program.command("workflow").description("List and run declarative workflows");
+
+workflow
+  .command("list")
+  .description("List registered workflows")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const list =
+        await client.call<{ name: string; description: string; steps: unknown[] }[]>(
+          "gin.workflow.list",
+        );
+      if (list.length === 0) {
+        console.log("No workflows registered. Drop specs in ~/.gin/workflows/*.json.");
+        return;
+      }
+      for (const w of list) console.log(`${w.name}  (${w.steps.length} steps)  ${w.description}`);
+    } finally {
+      client.close();
+    }
+  });
+
+workflow
+  .command("run <name> [inputJson]")
+  .description("Run a workflow to completion and print its output")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (name: string, inputJson: string | undefined, opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const input = inputJson !== undefined ? JSON.parse(inputJson) : {};
+      const result = await client.call<{ workflowId: string; output: unknown }>(
+        "gin.workflow.run",
+        { name, input },
+        600_000,
+      );
+      console.log(JSON.stringify(result.output, null, 2));
+    } finally {
+      client.close();
+    }
+  });
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   program.parseAsync(process.argv).catch((err: unknown) => {

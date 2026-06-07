@@ -36,6 +36,7 @@ beforeEach(async () => {
   stack = await buildStack({
     config,
     dbPath: ":memory:",
+    homeDir: workspace,
     router: new ModelRouter().register(new EchoProvider()),
   });
   gateway = createGateway({ port: 0, stack });
@@ -224,6 +225,53 @@ describe("Phase 3 RPC surface", () => {
     await rpc(ws, "gin.budget.set", { scope: "agent", limitUsd: 1 });
     const audit = await rpc(ws, "gin.audit.list", { action: "budget.set" });
     expect(audit.payload as unknown[]).toHaveLength(1);
+    ws.close();
+  });
+});
+
+describe("Phase 4 RPC surface", () => {
+  it("manages scheduled jobs over gin.schedule.*", async () => {
+    const ws = await connect();
+    const set = await rpc(ws, "gin.schedule.set", {
+      name: "brief",
+      cron: "0 7 * * *",
+      action: { kind: "message", text: "Summarize my inbox" },
+    });
+    expect(set.ok).toBe(true);
+    expect((set.payload as { nextRunAt?: number }).nextRunAt).toBeGreaterThan(Date.now());
+
+    const list = await rpc(ws, "gin.schedule.list");
+    expect((list.payload as { name: string }[]).map((j) => j.name)).toEqual(["brief"]);
+
+    const audit = await rpc(ws, "gin.audit.list", { action: "schedule.set" });
+    expect(audit.payload as unknown[]).toHaveLength(1);
+
+    const del = await rpc(ws, "gin.schedule.delete", { name: "brief" });
+    expect((del.payload as { deleted: boolean }).deleted).toBe(true);
+    ws.close();
+  });
+
+  it("registers and runs workflows over gin.workflow.*", async () => {
+    const ws = await connect();
+    stack.workflows.register({
+      name: "echo_time",
+      steps: [{ id: "now", kind: "tool", tool: "time.now", args: {} }],
+      output: "{{steps.now.output.iso}}",
+    });
+    const list = await rpc(ws, "gin.workflow.list");
+    expect((list.payload as { name: string }[]).map((w) => w.name)).toContain("echo_time");
+
+    const run = await rpc(ws, "gin.workflow.run", { name: "echo_time" });
+    expect(run.ok).toBe(true);
+    expect((run.payload as { output: string }).output).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    ws.close();
+  });
+
+  it("lists skills over gin.skill.list", async () => {
+    const ws = await connect();
+    stack.skills.save({ slug: "test-skill", description: "Testing", body: "..." });
+    const list = await rpc(ws, "gin.skill.list");
+    expect((list.payload as { slug: string }[]).map((s) => s.slug)).toContain("test-skill");
     ws.close();
   });
 });

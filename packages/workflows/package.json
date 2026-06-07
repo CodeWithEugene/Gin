@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/workflows",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin workflow DSL: declarative tool/model/approval pipelines compiled onto the durable engine.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,17 +23,14 @@
   "dependencies": {
     "@gin/core": "workspace:*",
     "@gin/cost": "workspace:*",
+    "@gin/durable": "workspace:*",
     "@gin/governance": "workspace:*",
-    "@gin/memory": "workspace:*",
     "@gin/models": "workspace:*",
-    "@gin/sandbox": "workspace:*",
-    "@gin/skills": "workspace:*",
-    "@gin/storage": "workspace:*",
     "@gin/tools": "workspace:*",
-    "@gin/verifier": "workspace:*",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@gin/storage": "workspace:*",
     "@types/node": "^24.0.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",

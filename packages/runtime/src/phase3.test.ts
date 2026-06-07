@@ -70,6 +70,7 @@ function setup(
     name: "governed-agent",
     workspacePath: mkdtempSync(join(tmpdir(), "gin-p3-")),
     modelConfig: { primary: "fake/test", fallbacks: [] },
+    sandboxMode: "host",
   }).id;
   return { store, bus, broker, provider, runtime, agentId, events };
 }

@@ -71,6 +71,7 @@ function setup(budgetPolicy: Record<string, unknown> = {}, opts: Record<string, 
     name: "budgeted-agent",
     workspacePath: mkdtempSync(join(tmpdir(), "gin-p2-")),
     modelConfig: { primary: "fake/costed", fallbacks: [] },
+    sandboxMode: "host",
     budgetPolicy,
   }).id;
 }
