@@ -1,4 +1,5 @@
 import { GinError, newId, toGinError, type Agent, type EventBus, type TokenUsage } from "@gin/core";
+import type { BudgetEngine, BudgetScopes } from "@gin/cost";
 import type { MemoryStore } from "@gin/memory";
 import {
   resultText,
@@ -24,10 +25,16 @@ export interface AgentRuntimeOptions {
   router: ModelRouter;
   registry: ToolRegistry;
   memory?: MemoryStore;
+  /** Budgets enforced BEFORE each model call (spec Phase 2). */
+  budget?: BudgetEngine;
   /** Hard cap on model-call iterations per turn (runaway-loop backstop). */
   maxIterations?: number;
   /** History window assembled into each model call. */
   historyLimit?: number;
+  /** Compact when live (uncompacted) messages exceed this count. */
+  compactAfter?: number;
+  /** How many recent messages stay verbatim after compaction. */
+  compactKeep?: number;
 }
 
 export interface RunTurnInput {
@@ -48,7 +55,7 @@ export interface TurnResult {
   usage: TokenUsage;
   costUsd: number;
   stepCount: number;
-  status: "succeeded" | "failed";
+  status: "succeeded" | "failed" | "budget_terminated";
 }
 
 const ZERO_USAGE: TokenUsage = {
@@ -64,8 +71,11 @@ export class AgentRuntime {
   private readonly router: ModelRouter;
   private readonly registry: ToolRegistry;
   private readonly memory: MemoryStore | undefined;
+  private readonly budget: BudgetEngine | undefined;
   private readonly maxIterations: number;
   private readonly historyLimit: number;
+  private readonly compactAfter: number;
+  private readonly compactKeep: number;
 
   constructor(opts: AgentRuntimeOptions) {
     this.store = opts.store;
@@ -73,8 +83,11 @@ export class AgentRuntime {
     this.router = opts.router;
     this.registry = opts.registry;
     this.memory = opts.memory;
+    this.budget = opts.budget;
     this.maxIterations = opts.maxIterations ?? 16;
     this.historyLimit = opts.historyLimit ?? 40;
+    this.compactAfter = opts.compactAfter ?? 60;
+    this.compactKeep = opts.compactKeep ?? 20;
   }
 
   async runTurn(input: RunTurnInput): Promise<TurnResult> {
@@ -95,6 +108,13 @@ export class AgentRuntime {
     const turnId = this.store.createTurn(session.id, traceId);
     this.bus.emit("turn.started", { turnId, sessionId: session.id, agentId: agent.id, traceId });
 
+    const scopes: BudgetScopes = {
+      tenantId: agent.tenantId,
+      agentId: agent.id,
+      sessionId: session.id,
+    };
+    this.ensureBudgets(agent, session.id);
+
     const total: TokenUsage = { ...ZERO_USAGE };
     let totalCost = 0;
     let stepCount = 0;
@@ -108,12 +128,15 @@ export class AgentRuntime {
     };
 
     try {
-      const system = await this.buildSystemPrompt(agent, input.userText);
-      const working: ChatMessage[] = this.assembleHistory(session.id);
+      const compaction = this.store.getCompaction(session.id);
+      const system = await this.buildSystemPrompt(agent, input.userText, compaction.summary);
+      const working: ChatMessage[] = this.assembleHistory(session.id, compaction.summaryUntil);
       const tools = this.registry.toChatTools(agent.toolPolicy);
 
       let finalText = "";
       for (let iteration = 0; iteration < this.maxIterations; iteration++) {
+        // The hard cost gate: the call is prevented, not billed-then-noticed.
+        this.budget?.checkAndReserve(scopes);
         const started = Date.now();
         const result = await this.router.chat({
           modelRef: agent.modelConfig.primary,
@@ -130,6 +153,7 @@ export class AgentRuntime {
         });
         accumulate(total, result.usage);
         totalCost += result.costUsd;
+        this.budget?.record(scopes, result.costUsd, { traceId, description: result.modelRef });
         stepCount++;
         this.store.recordStep({
           turnId,
@@ -179,6 +203,7 @@ export class AgentRuntime {
         costUsd: totalCost,
         stepCount,
       });
+      await this.maybeCompact(agent, session.id, scopes, traceId);
       return {
         turnId,
         sessionId: session.id,
@@ -190,6 +215,36 @@ export class AgentRuntime {
       };
     } catch (err) {
       const ginError = toGinError(err);
+      if (ginError.code === "budget_exceeded") {
+        // Terminate gracefully: the user learns WHY the agent stopped, the
+        // turn is recorded as budget_terminated, and no further calls happen.
+        const notice =
+          `⚠️ Budget limit reached — stopping here. ${ginError.message} ` +
+          "Raise the limit with `gin budget set` to continue.";
+        this.store.appendMessage({ sessionId: session.id, role: "assistant", content: notice });
+        this.store.finishTurn(turnId, {
+          status: "budget_terminated",
+          usage: total,
+          costUsd: totalCost,
+        });
+        this.bus.emit("turn.budget_terminated", {
+          turnId,
+          sessionId: session.id,
+          traceId,
+          usage: total,
+          costUsd: totalCost,
+          details: ginError.details,
+        });
+        return {
+          turnId,
+          sessionId: session.id,
+          text: notice,
+          usage: total,
+          costUsd: totalCost,
+          stepCount,
+          status: "budget_terminated",
+        };
+      }
       this.store.finishTurn(turnId, { status: "failed", usage: total, costUsd: totalCost });
       this.bus.emit("turn.failed", {
         turnId,
@@ -198,6 +253,95 @@ export class AgentRuntime {
         error: ginError.toJSON(),
       });
       throw ginError;
+    }
+  }
+
+  /** Materialize the agent's budget policy as engine rows (never overwrites). */
+  private ensureBudgets(agent: Agent, sessionId: string): void {
+    if (!this.budget) return;
+    const action = agent.budgetPolicy.action;
+    if (agent.budgetPolicy.perSessionUsd !== undefined) {
+      this.budget.ensureBudget({
+        scope: "session",
+        scopeRef: sessionId,
+        limitUsd: agent.budgetPolicy.perSessionUsd,
+        window: "session",
+        action,
+      });
+    }
+    if (agent.budgetPolicy.perDayUsd !== undefined) {
+      this.budget.ensureBudget({
+        scope: "agent",
+        scopeRef: agent.id,
+        limitUsd: agent.budgetPolicy.perDayUsd,
+        window: "day",
+        action,
+      });
+    }
+  }
+
+  /**
+   * Compaction: once live history outgrows compactAfter, summarize everything
+   * but the most recent compactKeep messages into the session summary. The
+   * raw messages stay on disk (audit); only the assembled context shrinks.
+   */
+  private async maybeCompact(
+    agent: Agent,
+    sessionId: string,
+    scopes: BudgetScopes,
+    traceId: string,
+  ): Promise<void> {
+    const compaction = this.store.getCompaction(sessionId);
+    const liveCount = this.store.messageCountAfter(sessionId, compaction.summaryUntil);
+    if (liveCount <= this.compactAfter) return;
+
+    const live = this.store.history(sessionId, liveCount, compaction.summaryUntil);
+    const toSummarize = live.slice(0, live.length - this.compactKeep);
+    if (toSummarize.length === 0) return;
+
+    try {
+      this.budget?.checkAndReserve(scopes);
+      const transcript = toSummarize.map((m) => `${m.role}: ${m.content}`).join("\n");
+      const result = await this.router.chat({
+        modelRef: agent.modelConfig.primary,
+        fallbacks: agent.modelConfig.fallbacks,
+        system:
+          "You compress conversation history. Produce a dense summary that preserves: " +
+          "facts about the user, decisions made, open tasks, and anything the assistant " +
+          "promised. Write it as bullet points. No preamble.",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  (compaction.summary ? `Existing summary:\n${compaction.summary}\n\n` : "") +
+                  `Conversation to fold in:\n${transcript}`,
+              },
+            ],
+          },
+        ],
+        maxTokens: 1024,
+        thinking: "off",
+      });
+      this.budget?.record(scopes, result.costUsd, { traceId, description: "compaction" });
+      const summary = resultText(result);
+      const lastSummarized = toSummarize.at(-1)!.id;
+      this.store.setCompaction(sessionId, summary, lastSummarized);
+      this.bus.emit("session.compacted", {
+        sessionId,
+        traceId,
+        summarizedMessages: toSummarize.length,
+        costUsd: result.costUsd,
+      });
+    } catch (err) {
+      // Compaction is best-effort: a failed summary must never fail the turn.
+      this.bus.emit("session.compact_failed", {
+        sessionId,
+        traceId,
+        error: toGinError(err).toJSON(),
+      });
     }
   }
 
@@ -244,9 +388,16 @@ export class AgentRuntime {
     }
   }
 
-  private async buildSystemPrompt(agent: Agent, userText: string): Promise<string> {
+  private async buildSystemPrompt(
+    agent: Agent,
+    userText: string,
+    summary?: string,
+  ): Promise<string> {
     const parts: string[] = [];
     parts.push(agent.persona.trim() || `You are ${agent.name}, a helpful autonomous agent.`);
+    if (summary) {
+      parts.push(`<conversation_summary>\n${summary}\n</conversation_summary>`);
+    }
     if (this.memory) {
       const hits = await this.memory.search(agent.id, userText, { limit: 5 });
       if (hits.length > 0) {
@@ -266,8 +417,8 @@ export class AgentRuntime {
     return parts.join("\n\n");
   }
 
-  private assembleHistory(sessionId: string): ChatMessage[] {
-    const history = this.store.history(sessionId, this.historyLimit);
+  private assembleHistory(sessionId: string, afterId?: string): ChatMessage[] {
+    const history = this.store.history(sessionId, this.historyLimit, afterId);
     const messages: ChatMessage[] = [];
     for (const msg of history) {
       if (msg.role !== "user" && msg.role !== "assistant") continue;

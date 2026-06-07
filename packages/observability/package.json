@@ -1,7 +1,7 @@
 {
-  "name": "@gin/gateway",
+  "name": "@gin/observability",
   "version": "0.1.0",
-  "description": "Gin Gateway — the single control-plane daemon: channels, sessions, tools, events, RPC/WS API.",
+  "description": "Gin observability: persistent trace store fed by the event bus — step-level glass-box tracing.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,40 +12,26 @@
       "import": "./dist/index.js"
     }
   },
-  "bin": {
-    "gin-gateway": "./dist/index.js"
-  },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
-    "dev": "node --experimental-strip-types src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fastify/websocket": "^11.0.0",
-    "@gin/channels": "workspace:*",
-    "@gin/config": "workspace:*",
     "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/durable": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/observability": "workspace:*",
-    "@gin/runtime": "workspace:*",
-    "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "fastify": "^5.2.0",
-    "zod": "^3.24.0"
+    "@gin/storage": "workspace:*"
   },
   "devDependencies": {
+    "@gin/memory": "workspace:*",
+    "@gin/models": "workspace:*",
+    "@gin/runtime": "workspace:*",
+    "@gin/tools": "workspace:*",
     "@types/node": "^24.0.0",
-    "@types/ws": "^8.5.0",
     "tsup": "^8.4.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.1.0",
-    "ws": "^8.18.0"
+    "vitest": "^3.1.0"
   }
 }

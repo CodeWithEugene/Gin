@@ -84,6 +84,16 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    name: "session-compaction",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE sessions ADD COLUMN summary TEXT;
+        ALTER TABLE sessions ADD COLUMN summary_until TEXT;
+      `);
+    },
+  },
 ];
 
 export interface SessionRecord {
@@ -240,15 +250,17 @@ export class SessionStore {
     return message;
   }
 
-  /** Chronological history (ULID PK sorts by creation). */
-  history(sessionId: string, limit = 40): StoredMessage[] {
+  /** Chronological history (ULID PK sorts by creation), after an optional cursor. */
+  history(sessionId: string, limit = 40, afterId?: string): StoredMessage[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM (
-           SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?
+           SELECT * FROM messages
+           WHERE session_id = ? AND id > ?
+           ORDER BY id DESC LIMIT ?
          ) ORDER BY id ASC`,
       )
-      .all(sessionId, limit) as Record<string, unknown>[];
+      .all(sessionId, afterId ?? "", limit) as Record<string, unknown>[];
     return rows.map((r) => ({
       id: r.id as string,
       sessionId: r.session_id as string,
@@ -256,6 +268,33 @@ export class SessionStore {
       content: r.content as string,
       createdAt: r.created_at as number,
     }));
+  }
+
+  /** Live (uncompacted) message count — the compaction trigger. */
+  messageCountAfter(sessionId: string, afterId?: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id = ? AND id > ?")
+      .get(sessionId, afterId ?? "") as { n: number };
+    return row.n;
+  }
+
+  // ── Compaction state ───────────────────────────────────────────────────────
+
+  getCompaction(sessionId: string): { summary?: string; summaryUntil?: string } {
+    const row = this.db
+      .prepare("SELECT summary, summary_until FROM sessions WHERE id = ?")
+      .get(sessionId) as { summary: string | null; summary_until: string | null } | undefined;
+    if (!row) return {};
+    return {
+      ...(row.summary !== null ? { summary: row.summary } : {}),
+      ...(row.summary_until !== null ? { summaryUntil: row.summary_until } : {}),
+    };
+  }
+
+  setCompaction(sessionId: string, summary: string, summaryUntil: string): void {
+    this.db
+      .prepare("UPDATE sessions SET summary = ?, summary_until = ? WHERE id = ?")
+      .run(summary, summaryUntil, sessionId);
   }
 
   // ── Turns & steps ──────────────────────────────────────────────────────────

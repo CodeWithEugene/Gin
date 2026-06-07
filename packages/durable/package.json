@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/durable",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin durable execution: event-sourced SQLite workflow engine with checkpoint, resume, retry, and compensation.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,12 +22,7 @@
   },
   "dependencies": {
     "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "zod": "^3.24.0"
+    "@gin/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

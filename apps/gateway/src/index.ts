@@ -32,6 +32,8 @@ if (isMain) {
 
   buildStack({ config })
     .then(async (stack) => {
+      // Crash recovery: any workflow left 'running' resumes from its log.
+      await stack.durable.resumeAll();
       const gateway = createGateway({ port, host, stack });
       await gateway.start();
       console.log(`gin-gateway listening on ws://${host}:${gateway.address.port}/ws`);

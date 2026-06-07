@@ -65,12 +65,21 @@ importers:
       "@gin/core":
         specifier: workspace:*
         version: link:../../packages/core
+      "@gin/cost":
+        specifier: workspace:*
+        version: link:../../packages/cost
+      "@gin/durable":
+        specifier: workspace:*
+        version: link:../../packages/durable
       "@gin/memory":
         specifier: workspace:*
         version: link:../../packages/memory
       "@gin/models":
         specifier: workspace:*
         version: link:../../packages/models
+      "@gin/observability":
+        specifier: workspace:*
+        version: link:../../packages/observability
       "@gin/runtime":
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -172,6 +181,50 @@ importers:
         specifier: ^3.1.0
         version: 3.2.6(@types/node@24.13.1)
 
+  packages/cost:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/durable:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
   packages/mcp:
     dependencies:
       "@gin/core":
@@ -247,11 +300,48 @@ importers:
         specifier: ^3.1.0
         version: 3.2.6(@types/node@24.13.1)
 
+  packages/observability:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
+    devDependencies:
+      "@gin/memory":
+        specifier: workspace:*
+        version: link:../memory
+      "@gin/models":
+        specifier: workspace:*
+        version: link:../models
+      "@gin/runtime":
+        specifier: workspace:*
+        version: link:../runtime
+      "@gin/tools":
+        specifier: workspace:*
+        version: link:../tools
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
   packages/runtime:
     dependencies:
       "@gin/core":
         specifier: workspace:*
         version: link:../core
+      "@gin/cost":
+        specifier: workspace:*
+        version: link:../cost
       "@gin/memory":
         specifier: workspace:*
         version: link:../memory

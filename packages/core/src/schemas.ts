@@ -277,6 +277,7 @@ export type MCPServer = z.infer<typeof MCPServerSchema>;
 // ── Budget / Governance / Audit ──────────────────────────────────────────────
 
 export const BudgetScopeSchema = z.enum(["agent", "tenant", "session", "pipeline", "apiKey"]);
+export type BudgetScope = z.infer<typeof BudgetScopeSchema>;
 
 export const BudgetSchema = z.object({
   id: UlidSchema,

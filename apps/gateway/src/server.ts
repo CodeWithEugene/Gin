@@ -43,6 +43,28 @@ const ChatSendSchema = z.object({
 
 const SessionListSchema = z.object({ agentId: z.string().optional() }).optional();
 
+const TraceListSchema = z
+  .object({ limit: z.number().int().positive().max(500).optional() })
+  .optional();
+
+const TraceGetSchema = z.object({ traceId: z.string().min(1) });
+
+const BudgetStatusSchema = z
+  .object({
+    agentId: z.string().optional(),
+    sessionId: z.string().optional(),
+    tenantId: z.string().optional(),
+  })
+  .optional();
+
+const BudgetSetSchema = z.object({
+  scope: z.enum(["agent", "tenant", "session", "pipeline", "apiKey"]),
+  scopeRef: z.string().min(1).optional(),
+  limitUsd: z.number().nonnegative(),
+  window: z.enum(["session", "hour", "day", "week", "month"]).optional(),
+  action: z.enum(["block", "degrade", "alert"]).optional(),
+});
+
 const startedAt = Symbol("startedAt");
 
 export function createGateway(opts: GatewayOptions = {}): Gateway {
@@ -74,6 +96,68 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
   });
 
   if (stack) {
+    // ── Phase 2: traces & budgets ────────────────────────────────────────────
+    methods.set("gin.trace.list", (params) => {
+      const parsed = TraceListSchema.safeParse(params ?? undefined);
+      if (!parsed.success) throw new GinError("validation_failed", "Invalid trace.list params");
+      return stack.traces.listTraces(parsed.data?.limit ?? 50);
+    });
+    methods.set("gin.trace.get", (params) => {
+      const parsed = TraceGetSchema.safeParse(params);
+      if (!parsed.success)
+        throw new GinError("validation_failed", "gin.trace.get needs { traceId }");
+      return stack.traces.getTrace(parsed.data.traceId);
+    });
+    methods.set("gin.budget.status", (params) => {
+      const parsed = BudgetStatusSchema.safeParse(params ?? undefined);
+      if (!parsed.success) throw new GinError("validation_failed", "Invalid budget.status params");
+      const scopes = {
+        agentId: parsed.data?.agentId ?? stack.defaultAgent.id,
+        tenantId: parsed.data?.tenantId ?? stack.defaultAgent.tenantId,
+        ...(parsed.data?.sessionId !== undefined ? { sessionId: parsed.data.sessionId } : {}),
+      };
+      // Session budgets matter per session; include every session-scoped row too.
+      const scoped = stack.budget.status(scopes);
+      const all = stack.budget
+        .listBudgets()
+        .filter((b) => !scoped.some((s) => s.id === b.id))
+        .map((b) => ({
+          ...b,
+          spentUsd: stack.budget.spent(b.scope, b.scopeRef, b.window),
+          remainingUsd: Math.max(0, b.limitUsd - stack.budget.spent(b.scope, b.scopeRef, b.window)),
+        }));
+      return [...scoped, ...all];
+    });
+    methods.set("gin.budget.set", (params) => {
+      const parsed = BudgetSetSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new GinError(
+          "validation_failed",
+          "gin.budget.set needs { scope, limitUsd, scopeRef?, window?, action? }",
+        );
+      }
+      const scopeRef =
+        parsed.data.scopeRef ??
+        (parsed.data.scope === "agent"
+          ? stack.defaultAgent.id
+          : parsed.data.scope === "tenant"
+            ? stack.defaultAgent.tenantId
+            : undefined);
+      if (scopeRef === undefined) {
+        throw new GinError(
+          "validation_failed",
+          `scopeRef is required for scope "${parsed.data.scope}"`,
+        );
+      }
+      return stack.budget.setBudget({
+        scope: parsed.data.scope,
+        scopeRef,
+        limitUsd: parsed.data.limitUsd,
+        ...(parsed.data.window !== undefined ? { window: parsed.data.window } : {}),
+        ...(parsed.data.action !== undefined ? { action: parsed.data.action } : {}),
+      });
+    });
+
     methods.set("gin.agent.list", () => stack.store.listAgents());
     methods.set("gin.session.list", (params) => {
       const parsed = SessionListSchema.safeParse(params ?? undefined);

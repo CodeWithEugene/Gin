@@ -149,6 +149,141 @@ agent
     }
   });
 
+const trace = program.command("trace").description("Inspect step-level traces");
+
+trace
+  .command("list")
+  .description("List recent traces with cost and step rollups")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .option("--limit <n>", "max traces", "20")
+  .action(async (opts: { gatewayUrl: string; limit: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const traces = await client.call<
+        {
+          traceId: string;
+          status: string;
+          modelCalls: number;
+          toolCalls: number;
+          costUsd: number;
+          startTs: number;
+          endTs: number;
+        }[]
+      >("gin.trace.list", { limit: Number(opts.limit) });
+      if (traces.length === 0) {
+        console.log("No traces yet.");
+        return;
+      }
+      for (const t of traces) {
+        const duration = ((t.endTs - t.startTs) / 1000).toFixed(1);
+        console.log(
+          `${t.traceId}  ${t.status.padEnd(18)}  ${t.modelCalls} model / ${t.toolCalls} tool  ` +
+            `$${t.costUsd.toFixed(4)}  ${duration}s`,
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+trace
+  .command("show <traceId>")
+  .description("Print the full ordered timeline of one trace")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (traceId: string, opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const events = await client.call<{ type: string; ts: number; payload: unknown }[]>(
+        "gin.trace.get",
+        { traceId },
+      );
+      if (events.length === 0) {
+        console.log(`No events for trace ${traceId}.`);
+        process.exitCode = 1;
+        return;
+      }
+      const start = events[0]!.ts;
+      for (const e of events) {
+        const offset = `+${((e.ts - start) / 1000).toFixed(3)}s`.padStart(10);
+        console.log(`${offset}  ${e.type.padEnd(24)}  ${JSON.stringify(e.payload)}`);
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+const budget = program.command("budget").description("Inspect and set spend budgets");
+
+budget
+  .command("status")
+  .description("Show configured budgets with spend and remaining headroom")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const rows = await client.call<
+        {
+          scope: string;
+          scopeRef: string;
+          window: string;
+          limitUsd: number;
+          spentUsd: number;
+          remainingUsd: number;
+          action: string;
+        }[]
+      >("gin.budget.status");
+      if (rows.length === 0) {
+        console.log("No budgets configured. Set one with `gin budget set --limit <usd>`.");
+        return;
+      }
+      for (const b of rows) {
+        console.log(
+          `${b.scope}/${b.window}  ${b.scopeRef}  limit $${b.limitUsd.toFixed(2)}  ` +
+            `spent $${b.spentUsd.toFixed(4)}  remaining $${b.remainingUsd.toFixed(4)}  [${b.action}]`,
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+budget
+  .command("set")
+  .description("Create or update a budget (defaults to the default agent, daily window)")
+  .requiredOption("--limit <usd>", "limit in USD")
+  .option("--scope <scope>", "agent | tenant | session | pipeline | apiKey", "agent")
+  .option("--ref <scopeRef>", "scope reference (defaults for agent/tenant)")
+  .option("--window <window>", "session | hour | day | week | month", "day")
+  .option("--action <action>", "block | degrade | alert", "block")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(
+    async (opts: {
+      limit: string;
+      scope: string;
+      ref?: string;
+      window: string;
+      action: string;
+      gatewayUrl: string;
+    }) => {
+      const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+      try {
+        const row = await client.call<{ scope: string; scopeRef: string; limitUsd: number }>(
+          "gin.budget.set",
+          {
+            scope: opts.scope,
+            ...(opts.ref !== undefined ? { scopeRef: opts.ref } : {}),
+            limitUsd: Number(opts.limit),
+            window: opts.window,
+            action: opts.action,
+          },
+        );
+        console.log(`Budget set: ${row.scope} ${row.scopeRef} → $${row.limitUsd.toFixed(2)}`);
+      } finally {
+        client.close();
+      }
+    },
+  );
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   program.parseAsync(process.argv).catch((err: unknown) => {

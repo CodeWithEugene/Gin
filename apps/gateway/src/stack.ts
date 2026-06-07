@@ -9,16 +9,20 @@ import {
 } from "@gin/channels";
 import { ginHome, workspacePath, type GinConfig } from "@gin/config";
 import { EventBus, newId, type Agent } from "@gin/core";
+import { BudgetEngine } from "@gin/cost";
+import { DurableEngine } from "@gin/durable";
 import { HashEmbedder, MemoryStore } from "@gin/memory";
 import { AnthropicProvider, ModelRouter, OllamaProvider } from "@gin/models";
+import { TraceStore } from "@gin/observability";
 import { AgentRuntime, SessionStore } from "@gin/runtime";
 import { openDatabase, type GinDatabase } from "@gin/storage";
 import { ToolRegistry, registerCoreTools } from "@gin/tools";
 
 /**
- * The full Phase 1 runtime stack behind the Gateway: storage, models, tools,
- * memory, the agent runtime, and channels with the guaranteed-delivery
- * outbox. The Gateway's RPC layer is a thin shell over this.
+ * The full runtime stack behind the Gateway: storage, models, tools, memory,
+ * the agent runtime, channels with the guaranteed-delivery outbox, and the
+ * Phase 2 wedge — durable engine, trace store, and budget engine. The
+ * Gateway's RPC layer is a thin shell over this.
  */
 
 export interface GatewayStack {
@@ -31,6 +35,9 @@ export interface GatewayStack {
   memory: MemoryStore;
   manager: ChannelManager;
   webchat: WebChatAdapter;
+  budget: BudgetEngine;
+  traces: TraceStore;
+  durable: DurableEngine;
   config: GinConfig;
   defaultAgent: Agent;
   close(): Promise<void>;
@@ -58,7 +65,12 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
 
   const router = opts.router ?? defaultRouter();
 
-  const runtime = new AgentRuntime({ store, bus, router, registry, memory });
+  // Phase 2 wedge: glass-box traces, hard budgets, durable workflows.
+  const traces = new TraceStore(db).attach(bus);
+  const budget = new BudgetEngine(db, { bus });
+  const durable = new DurableEngine(db, { bus });
+
+  const runtime = new AgentRuntime({ store, bus, router, registry, memory, budget });
   const defaultAgent = ensureDefaultAgent(store, config);
 
   const outbox = new Outbox(db);
@@ -97,10 +109,14 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
     memory,
     manager,
     webchat,
+    budget,
+    traces,
+    durable,
     config,
     defaultAgent,
     async close() {
       await manager.stop();
+      traces.detach();
       db.close();
     },
   };

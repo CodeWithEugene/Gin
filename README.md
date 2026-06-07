@@ -16,10 +16,13 @@ it shouldn't**:
 
 ## Status
 
-🚧 Early development. Phase 0 (scaffold) and Phase 1 (parity core) are in place: a working
-agent loop with Anthropic + Ollama models, 10 built-in tools, MCP client, FTS5+vector
-memory, persistent sessions, and WebChat + Telegram channels behind a guaranteed-delivery
-outbox. Phase 2 (durable execution + observability cockpit + hard budgets) is next.
+🚧 Early development. Phases 0–2 are in place: a working agent loop with Anthropic +
+Ollama models, 10 built-in tools, MCP client, FTS5+vector memory, persistent sessions,
+WebChat + Telegram channels behind a guaranteed-delivery outbox — and the wedge: an
+event-sourced **durable execution engine** (kill it at step 6, it resumes at step 7),
+**step-level tracing** of every model and tool call (`gin trace`), and **hard dollar
+budgets** enforced _before_ each model call (`gin budget`), with automatic session
+compaction. Phase 3 (governance: scopes, approval gates, verifier) is next.
 
 ## Quick start (dev)
 
@@ -48,21 +51,23 @@ To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
 
 ## Monorepo layout
 
-| Path                  | What                                                         |
-| --------------------- | ------------------------------------------------------------ |
-| `apps/gateway`        | The daemon: control plane, RPC/WS server, runtime stack      |
-| `apps/cli`            | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …) |
-| `apps/command-center` | React workspace UI + observability cockpit _(soon)_          |
-| `packages/core`       | Domain types, Zod schemas, event bus, IDs, errors            |
-| `packages/config`     | Config schema + loader (`~/.gin/gin.json`)                   |
-| `packages/storage`    | SQLite (WAL) handle + namespaced migrations                  |
-| `packages/models`     | Provider adapters (Anthropic, Ollama), routing, cost meter   |
-| `packages/tools`      | Tool registry (Zod-validated) + 10 built-in tools            |
-| `packages/mcp`        | MCP client (stdio + HTTP) with per-server tool filtering     |
-| `packages/memory`     | Persistent memory: FTS5 + vector hybrid search               |
-| `packages/runtime`    | Agent loop + session/turn/step persistence                   |
-| `packages/channels`   | Outbox (at-least-once, ordered) + WebChat/Telegram           |
-| `packages/durable`    | Durable execution engine _(Phase 2 — the spine)_             |
+| Path                     | What                                                          |
+| ------------------------ | ------------------------------------------------------------- |
+| `apps/gateway`           | The daemon: control plane, RPC/WS server, runtime stack       |
+| `apps/cli`               | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …)  |
+| `apps/command-center`    | React workspace UI + observability cockpit _(soon)_           |
+| `packages/core`          | Domain types, Zod schemas, event bus, IDs, errors             |
+| `packages/config`        | Config schema + loader (`~/.gin/gin.json`)                    |
+| `packages/storage`       | SQLite (WAL) handle + namespaced migrations                   |
+| `packages/models`        | Provider adapters (Anthropic, Ollama), routing, cost meter    |
+| `packages/tools`         | Tool registry (Zod-validated) + 10 built-in tools             |
+| `packages/mcp`           | MCP client (stdio + HTTP) with per-server tool filtering      |
+| `packages/memory`        | Persistent memory: FTS5 + vector hybrid search                |
+| `packages/runtime`       | Agent loop + session/turn/step persistence                    |
+| `packages/channels`      | Outbox (at-least-once, ordered) + WebChat/Telegram            |
+| `packages/durable`       | Event-sourced durable workflows: checkpoint/resume/compensate |
+| `packages/cost`          | Budget engine: limits enforced before each call + ledger      |
+| `packages/observability` | Trace store: step-level glass-box timelines from the bus      |
 
 ## Principles
 

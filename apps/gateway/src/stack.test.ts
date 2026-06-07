@@ -4,13 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GinConfigSchema } from "@gin/config";
-import {
-  ModelRouter,
-  resultText as _rt,
-  type ChatRequest,
-  type ChatResult,
-  type ModelProvider,
-} from "@gin/models";
+import { ModelRouter, type ChatRequest, type ChatResult, type ModelProvider } from "@gin/models";
 import { createGateway, type Gateway } from "./server.js";
 import { buildStack, resolveSecret, type GatewayStack } from "./stack.js";
 
@@ -152,6 +146,50 @@ describe("stack-backed gateway", () => {
     const res = await rpc(ws, "gin.chat.send", { nope: true });
     expect(res.ok).toBe(false);
     expect((res.error as { code: string }).code).toBe("validation_failed");
+    ws.close();
+  });
+});
+
+describe("Phase 2 RPC surface", () => {
+  it("exposes traces of chat turns over gin.trace.*", async () => {
+    const ws = await connect();
+    const reply = nextEvent(ws, "webchat.message");
+    await rpc(ws, "gin.chat.send", { text: "trace me" });
+    await reply;
+
+    const list = await rpc(ws, "gin.trace.list");
+    expect(list.ok).toBe(true);
+    const traces = list.payload as { traceId: string; status: string; modelCalls: number }[];
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toMatchObject({ status: "succeeded", modelCalls: 1 });
+
+    const detail = await rpc(ws, "gin.trace.get", { traceId: traces[0]!.traceId });
+    const types = (detail.payload as { type: string }[]).map((e) => e.type);
+    expect(types).toEqual(
+      expect.arrayContaining(["turn.started", "model.called", "turn.completed"]),
+    );
+    ws.close();
+  });
+
+  it("sets and reports budgets over gin.budget.*", async () => {
+    const ws = await connect();
+    const set = await rpc(ws, "gin.budget.set", { limitUsd: 2.5, scope: "agent", window: "day" });
+    expect(set.ok).toBe(true);
+    expect((set.payload as { scopeRef: string }).scopeRef).toBe(stack.defaultAgent.id);
+
+    const status = await rpc(ws, "gin.budget.status");
+    const rows = status.payload as { scope: string; limitUsd: number; remainingUsd: number }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ scope: "agent", limitUsd: 2.5, remainingUsd: 2.5 });
+    ws.close();
+  });
+
+  it("validates Phase 2 params", async () => {
+    const ws = await connect();
+    const bad = await rpc(ws, "gin.budget.set", { scope: "session", limitUsd: 1 }); // ref required
+    expect(bad.ok).toBe(false);
+    const badTrace = await rpc(ws, "gin.trace.get", {});
+    expect(badTrace.ok).toBe(false);
     ws.close();
   });
 });
