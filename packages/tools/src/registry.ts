@@ -40,6 +40,8 @@ export interface ToolDefinition<Schema extends z.ZodTypeAny = z.ZodTypeAny> {
    * the server's schema verbatim; built-ins derive theirs from paramsSchema.
    */
   inputJsonSchema?: Record<string, unknown>;
+  /** Optional output contract — malformed results become verification_failed. */
+  resultSchema?: z.ZodTypeAny;
   execute(args: z.infer<Schema>, ctx: ToolContext): Promise<unknown>;
 }
 
@@ -105,10 +107,25 @@ export class ToolRegistry {
       });
     }
 
+    let output: unknown;
     try {
-      return await tool.execute(parsed.data, ctx);
+      output = await tool.execute(parsed.data, ctx);
     } catch (err) {
       throw toGinError(err, "tool_error");
     }
+
+    // Output validation (spec Phase 3): a tool that declares a result shape
+    // must honor it — malformed output is a verification failure, not data
+    // the model silently builds on.
+    if (tool.resultSchema) {
+      const result = tool.resultSchema.safeParse(output);
+      if (!result.success) {
+        throw new GinError("verification_failed", `Tool ${name} returned malformed output`, {
+          details: { issues: result.error.issues },
+        });
+      }
+      return result.data;
+    }
+    return output;
   }
 }

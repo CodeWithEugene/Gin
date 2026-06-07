@@ -71,6 +71,9 @@ importers:
       "@gin/durable":
         specifier: workspace:*
         version: link:../../packages/durable
+      "@gin/governance":
+        specifier: workspace:*
+        version: link:../../packages/governance
       "@gin/memory":
         specifier: workspace:*
         version: link:../../packages/memory
@@ -89,6 +92,9 @@ importers:
       "@gin/tools":
         specifier: workspace:*
         version: link:../../packages/tools
+      "@gin/verifier":
+        specifier: workspace:*
+        version: link:../../packages/verifier
       fastify:
         specifier: ^5.2.0
         version: 5.8.5
@@ -204,6 +210,28 @@ importers:
         version: 3.2.6(@types/node@24.13.1)
 
   packages/durable:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
+      "@gin/storage":
+        specifier: workspace:*
+        version: link:../storage
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/governance:
     dependencies:
       "@gin/core":
         specifier: workspace:*
@@ -342,6 +370,9 @@ importers:
       "@gin/cost":
         specifier: workspace:*
         version: link:../cost
+      "@gin/governance":
+        specifier: workspace:*
+        version: link:../governance
       "@gin/memory":
         specifier: workspace:*
         version: link:../memory
@@ -354,6 +385,9 @@ importers:
       "@gin/tools":
         specifier: workspace:*
         version: link:../tools
+      "@gin/verifier":
+        specifier: workspace:*
+        version: link:../verifier
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -407,6 +441,25 @@ importers:
       zod-to-json-schema:
         specifier: ^3.24.0
         version: 3.25.2(zod@3.25.76)
+    devDependencies:
+      "@types/node":
+        specifier: ^24.0.0
+        version: 24.13.1
+      tsup:
+        specifier: ^8.4.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.0
+        version: 3.2.6(@types/node@24.13.1)
+
+  packages/verifier:
+    dependencies:
+      "@gin/core":
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       "@types/node":
         specifier: ^24.0.0

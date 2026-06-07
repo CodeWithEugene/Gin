@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/governance",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin governance plane: RBAC scopes, append-only audit log, and durable approval gates.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,14 +22,7 @@
   },
   "dependencies": {
     "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/governance": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "@gin/verifier": "workspace:*",
-    "zod": "^3.24.0"
+    "@gin/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

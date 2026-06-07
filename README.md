@@ -16,13 +16,17 @@ it shouldn't**:
 
 ## Status
 
-🚧 Early development. Phases 0–2 are in place: a working agent loop with Anthropic +
+🚧 Early development. Phases 0–3 are in place: a working agent loop with Anthropic +
 Ollama models, 10 built-in tools, MCP client, FTS5+vector memory, persistent sessions,
-WebChat + Telegram channels behind a guaranteed-delivery outbox — and the wedge: an
+WebChat + Telegram channels behind a guaranteed-delivery outbox; the wedge — an
 event-sourced **durable execution engine** (kill it at step 6, it resumes at step 7),
 **step-level tracing** of every model and tool call (`gin trace`), and **hard dollar
 budgets** enforced _before_ each model call (`gin budget`), with automatic session
-compaction. Phase 3 (governance: scopes, approval gates, verifier) is next.
+compaction; and the governance plane — **RBAC scopes**, **durable approval gates** for
+high-risk tools (`gin approvals`), an **append-only audit log** (`gin audit`), tool
+output contracts, and the **anti-silent-failure verifier** ("0 rows affected" is never
+reported as "done"). Phase 4 (reach & depth: more channels, sandboxing, skills, voice)
+is next.
 
 ## Quick start (dev)
 
@@ -68,6 +72,8 @@ To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
 | `packages/durable`       | Event-sourced durable workflows: checkpoint/resume/compensate |
 | `packages/cost`          | Budget engine: limits enforced before each call + ledger      |
 | `packages/observability` | Trace store: step-level glass-box timelines from the bus      |
+| `packages/governance`    | RBAC scopes, append-only audit log, durable approval gates    |
+| `packages/verifier`      | Anti-silent-failure turn verification, pluggable rules        |
 
 ## Principles
 

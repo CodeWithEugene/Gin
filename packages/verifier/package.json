@@ -1,7 +1,7 @@
 {
-  "name": "@gin/runtime",
+  "name": "@gin/verifier",
   "version": "0.1.0",
-  "description": "Gin agent runtime: session/turn/step persistence and the model+tool agent loop.",
+  "description": "Gin anti-silent-failure verifier: rule-based turn verification — '0 rows affected' is never reported as done.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,15 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gin/core": "workspace:*",
-    "@gin/cost": "workspace:*",
-    "@gin/governance": "workspace:*",
-    "@gin/memory": "workspace:*",
-    "@gin/models": "workspace:*",
-    "@gin/storage": "workspace:*",
-    "@gin/tools": "workspace:*",
-    "@gin/verifier": "workspace:*",
-    "zod": "^3.24.0"
+    "@gin/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

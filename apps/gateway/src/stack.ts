@@ -11,12 +11,14 @@ import { ginHome, workspacePath, type GinConfig } from "@gin/config";
 import { EventBus, newId, type Agent } from "@gin/core";
 import { BudgetEngine } from "@gin/cost";
 import { DurableEngine } from "@gin/durable";
+import { ApprovalBroker, AuditLog, Rbac } from "@gin/governance";
 import { HashEmbedder, MemoryStore } from "@gin/memory";
 import { AnthropicProvider, ModelRouter, OllamaProvider } from "@gin/models";
 import { TraceStore } from "@gin/observability";
 import { AgentRuntime, SessionStore } from "@gin/runtime";
 import { openDatabase, type GinDatabase } from "@gin/storage";
 import { ToolRegistry, registerCoreTools } from "@gin/tools";
+import { Verifier } from "@gin/verifier";
 
 /**
  * The full runtime stack behind the Gateway: storage, models, tools, memory,
@@ -38,6 +40,9 @@ export interface GatewayStack {
   budget: BudgetEngine;
   traces: TraceStore;
   durable: DurableEngine;
+  approvals: ApprovalBroker;
+  audit: AuditLog;
+  rbac: Rbac;
   config: GinConfig;
   defaultAgent: Agent;
   close(): Promise<void>;
@@ -70,7 +75,30 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
   const budget = new BudgetEngine(db, { bus });
   const durable = new DurableEngine(db, { bus });
 
-  const runtime = new AgentRuntime({ store, bus, router, registry, memory, budget });
+  // Phase 3 governance: approval gates, audit log, RBAC, verifier.
+  const approvalsConfig = config.governance.approvals;
+  const approvals = new ApprovalBroker(db, { bus, timeoutMs: approvalsConfig.timeoutMs });
+  const audit = new AuditLog(db);
+  const rbac = new Rbac();
+
+  const runtime = new AgentRuntime({
+    store,
+    bus,
+    router,
+    registry,
+    memory,
+    budget,
+    ...(approvalsConfig.enabled
+      ? {
+          approvals: {
+            broker: approvals,
+            threshold: approvalsConfig.threshold,
+            timeoutMs: approvalsConfig.timeoutMs,
+          },
+        }
+      : {}),
+    ...(config.governance.verifier.enabled ? { verifier: new Verifier() } : {}),
+  });
   const defaultAgent = ensureDefaultAgent(store, config);
 
   const outbox = new Outbox(db);
@@ -112,6 +140,9 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
     budget,
     traces,
     durable,
+    approvals,
+    audit,
+    rbac,
     config,
     defaultAgent,
     async close() {

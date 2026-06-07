@@ -1,5 +1,14 @@
-import { GinError, newId, toGinError, type Agent, type EventBus, type TokenUsage } from "@gin/core";
+import {
+  GinError,
+  newId,
+  toGinError,
+  type Agent,
+  type EventBus,
+  type RiskLevel,
+  type TokenUsage,
+} from "@gin/core";
 import type { BudgetEngine, BudgetScopes } from "@gin/cost";
+import type { ApprovalBroker } from "@gin/governance";
 import type { MemoryStore } from "@gin/memory";
 import {
   resultText,
@@ -9,6 +18,7 @@ import {
   type ModelRouter,
 } from "@gin/models";
 import type { ToolContext, ToolRegistry } from "@gin/tools";
+import type { Verifier } from "@gin/verifier";
 import type { SessionStore } from "./store.js";
 
 /**
@@ -27,6 +37,15 @@ export interface AgentRuntimeOptions {
   memory?: MemoryStore;
   /** Budgets enforced BEFORE each model call (spec Phase 2). */
   budget?: BudgetEngine;
+  /** Approval gates: tools at/above threshold pause for a human (Phase 3). */
+  approvals?: {
+    broker: ApprovalBroker;
+    /** Minimum risk level that requires approval (default "critical"). */
+    threshold?: RiskLevel;
+    timeoutMs?: number;
+  };
+  /** Anti-silent-failure verification of the final reply (Phase 3). */
+  verifier?: Verifier;
   /** Hard cap on model-call iterations per turn (runaway-loop backstop). */
   maxIterations?: number;
   /** History window assembled into each model call. */
@@ -72,6 +91,8 @@ export class AgentRuntime {
   private readonly registry: ToolRegistry;
   private readonly memory: MemoryStore | undefined;
   private readonly budget: BudgetEngine | undefined;
+  private readonly approvals: AgentRuntimeOptions["approvals"];
+  private readonly verifier: Verifier | undefined;
   private readonly maxIterations: number;
   private readonly historyLimit: number;
   private readonly compactAfter: number;
@@ -84,6 +105,8 @@ export class AgentRuntime {
     this.registry = opts.registry;
     this.memory = opts.memory;
     this.budget = opts.budget;
+    this.approvals = opts.approvals;
+    this.verifier = opts.verifier;
     this.maxIterations = opts.maxIterations ?? 16;
     this.historyLimit = opts.historyLimit ?? 40;
     this.compactAfter = opts.compactAfter ?? 60;
@@ -193,6 +216,8 @@ export class AgentRuntime {
         }
       }
 
+      finalText = this.runVerifier(turnId, traceId, finalText);
+
       this.store.appendMessage({ sessionId: session.id, role: "assistant", content: finalText });
       this.store.finishTurn(turnId, { status: "succeeded", usage: total, costUsd: totalCost });
       this.bus.emit("turn.completed", {
@@ -254,6 +279,75 @@ export class AgentRuntime {
       });
       throw ginError;
     }
+  }
+
+  /**
+   * Anti-silent-failure check (Phase 3): cross-check the final reply against
+   * the recorded step evidence. Error-level findings are appended to the
+   * reply itself — the user must never read a failed action as "done".
+   */
+  private runVerifier(turnId: string, traceId: string, finalText: string): string {
+    if (!this.verifier) return finalText;
+    const verdict = this.verifier.verifyTurn({ finalText, steps: this.store.steps(turnId) });
+    this.store.recordStep({
+      turnId,
+      type: "verify",
+      status: verdict.ok ? "succeeded" : "failed",
+      output: verdict,
+    });
+    this.bus.emit(verdict.ok ? "verifier.passed" : "verifier.flagged", {
+      turnId,
+      traceId,
+      findings: verdict.findings,
+    });
+    if (verdict.ok) return finalText;
+    const notes = verdict.findings
+      .filter((f) => f.severity === "error")
+      .map((f) => `⚠️ Verifier: ${f.message}`)
+      .join("\n");
+    return `${finalText}\n\n${notes}`;
+  }
+
+  /** Returns an error tool_result when approval is required and not granted. */
+  private async gateApproval(
+    call: { id: string; name: string; input: unknown },
+    ctx: ToolContext,
+    turnId: string,
+    traceId: string,
+  ): Promise<ChatContentBlock | undefined> {
+    if (!this.approvals) return undefined;
+    const risk = this.registry.get(call.name)?.riskLevel ?? "medium";
+    const threshold = this.approvals.threshold ?? "critical";
+    if (riskRank(risk) < riskRank(threshold)) return undefined;
+
+    const status = await this.approvals.broker.request(
+      {
+        action: call.name,
+        params: call.input,
+        riskLevel: risk,
+        agentId: ctx.agentId,
+        sessionId: ctx.sessionId,
+        turnId,
+      },
+      this.approvals.timeoutMs,
+    );
+    this.store.recordStep({
+      turnId,
+      type: "approval",
+      status: status === "approved" ? "succeeded" : "failed",
+      input: { tool: call.name, riskLevel: risk },
+      output: { status },
+    });
+    this.bus.emit("step.approval", { turnId, traceId, tool: call.name, status });
+    if (status === "approved") return undefined;
+
+    const why = status === "expired" ? "timed out awaiting approval" : "was denied by the operator";
+    return {
+      type: "tool_result",
+      toolUseId: call.id,
+      content: `Error (approval_required): the ${call.name} call ${why}. Do not retry it; explain to the user instead.`,
+      isError: true,
+    };
   }
 
   /** Materialize the agent's budget policy as engine rows (never overwrites). */
@@ -352,6 +446,12 @@ export class AgentRuntime {
     turnId: string,
     traceId: string,
   ): Promise<ChatContentBlock> {
+    // Approval gate (Phase 3): high-risk actions pause for a human. A denial
+    // or timeout becomes an error result the model must work around — the
+    // action itself never runs.
+    const gated = await this.gateApproval(call, ctx, turnId, traceId);
+    if (gated) return gated;
+
     const started = Date.now();
     this.bus.emit("step.started", { turnId, traceId, tool: call.name });
     try {
@@ -440,6 +540,12 @@ export class AgentRuntime {
         })),
     };
   }
+}
+
+const RISK_ORDER: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+function riskRank(level: RiskLevel): number {
+  return RISK_ORDER[level];
 }
 
 function accumulate(total: TokenUsage, usage: TokenUsage): void {

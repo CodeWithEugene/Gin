@@ -161,6 +161,42 @@ describe("memory + messaging ports", () => {
   });
 });
 
+describe("output validation (resultSchema)", () => {
+  it("rejects malformed tool output as verification_failed", async () => {
+    const { z } = await import("zod");
+    const local = new ToolRegistry().register({
+      name: "weather.get",
+      description: "Weather with a declared output contract",
+      toolset: "weather",
+      riskLevel: "low",
+      paramsSchema: z.object({}),
+      resultSchema: z.object({ tempC: z.number(), summary: z.string() }),
+      async execute() {
+        return { tempC: "not-a-number" }; // violates the contract
+      },
+    });
+    await expect(local.execute("weather.get", {}, ctx)).rejects.toMatchObject({
+      code: "verification_failed",
+    });
+  });
+
+  it("passes conforming output through", async () => {
+    const { z } = await import("zod");
+    const local = new ToolRegistry().register({
+      name: "weather.get",
+      description: "Weather",
+      toolset: "weather",
+      riskLevel: "low",
+      paramsSchema: z.object({}),
+      resultSchema: z.object({ tempC: z.number() }),
+      async execute() {
+        return { tempC: 21 };
+      },
+    });
+    await expect(local.execute("weather.get", {}, ctx)).resolves.toEqual({ tempC: 21 });
+  });
+});
+
 describe("time.now", () => {
   it("returns ISO and epoch forms", async () => {
     const result = (await registry.execute("time.now", {}, ctx)) as {

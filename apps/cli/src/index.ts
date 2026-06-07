@@ -284,6 +284,101 @@ budget
     },
   );
 
+const approvals = program.command("approvals").description("Review and decide approval requests");
+
+approvals
+  .command("list")
+  .description("List pending approval requests")
+  .option("--all", "include decided/expired requests")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { all?: boolean; gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const rows = await client.call<
+        {
+          id: string;
+          action: string;
+          riskLevel: string;
+          status: string;
+          params: unknown;
+          requestedAt: number;
+        }[]
+      >("gin.approval.list", { all: opts.all === true });
+      if (rows.length === 0) {
+        console.log(opts.all ? "No approval requests." : "No pending approvals.");
+        return;
+      }
+      for (const a of rows) {
+        const age = ((Date.now() - a.requestedAt) / 1000).toFixed(0);
+        console.log(
+          `${a.id}  ${a.status.padEnd(8)}  ${a.riskLevel.padEnd(8)}  ${a.action}  ` +
+            `${JSON.stringify(a.params).slice(0, 80)}  (${age}s ago)`,
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+function decideCommand(decision: "approved" | "denied", verb: string) {
+  approvals
+    .command(`${verb} <approvalId>`)
+    .description(`${verb === "approve" ? "Approve" : "Deny"} a pending request`)
+    .option("--reason <reason>", "recorded with the decision")
+    .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+    .action(async (approvalId: string, opts: { reason?: string; gatewayUrl: string }) => {
+      const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+      try {
+        const record = await client.call<{ id: string; status: string; action: string }>(
+          "gin.approval.decide",
+          {
+            approvalId,
+            decision,
+            ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+          },
+        );
+        console.log(`${record.action} → ${record.status}`);
+      } finally {
+        client.close();
+      }
+    });
+}
+decideCommand("approved", "approve");
+decideCommand("denied", "deny");
+
+program
+  .command("audit")
+  .description("List the append-only audit log")
+  .option("--actor <actor>", "filter by actor")
+  .option("--action <action>", "filter by action")
+  .option("--limit <n>", "max entries", "50")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { actor?: string; action?: string; limit: string; gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const rows = await client.call<
+        { actor: string; action: string; target: string; after?: unknown; createdAt: number }[]
+      >("gin.audit.list", {
+        ...(opts.actor !== undefined ? { actor: opts.actor } : {}),
+        ...(opts.action !== undefined ? { action: opts.action } : {}),
+        limit: Number(opts.limit),
+      });
+      if (rows.length === 0) {
+        console.log("Audit log is empty.");
+        return;
+      }
+      for (const e of rows) {
+        const when = new Date(e.createdAt).toISOString();
+        console.log(
+          `${when}  ${e.actor.padEnd(10)}  ${e.action.padEnd(18)}  ${e.target}` +
+            (e.after !== undefined ? `  ${JSON.stringify(e.after)}` : ""),
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   program.parseAsync(process.argv).catch((err: unknown) => {

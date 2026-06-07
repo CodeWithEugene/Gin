@@ -194,6 +194,77 @@ describe("Phase 2 RPC surface", () => {
   });
 });
 
+describe("Phase 3 RPC surface", () => {
+  it("lists and decides approvals, writing the audit log", async () => {
+    const ws = await connect();
+    // Create a pending approval directly on the broker (a high-risk tool would).
+    void stack.approvals.request({ action: "shell.exec", riskLevel: "high" }, 60_000);
+
+    const pending = await rpc(ws, "gin.approval.list");
+    expect(pending.ok).toBe(true);
+    const [request] = pending.payload as { id: string; action: string }[];
+    expect(request).toMatchObject({ action: "shell.exec" });
+
+    const decided = await rpc(ws, "gin.approval.decide", {
+      approvalId: request!.id,
+      decision: "denied",
+      reason: "too spicy",
+    });
+    expect((decided.payload as { status: string }).status).toBe("denied");
+
+    const audit = await rpc(ws, "gin.audit.list", { action: "approval.decided" });
+    const entries = audit.payload as { actor: string; target: string }[];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ actor: "operator", target: `approval/${request!.id}` });
+    ws.close();
+  });
+
+  it("audits budget changes", async () => {
+    const ws = await connect();
+    await rpc(ws, "gin.budget.set", { scope: "agent", limitUsd: 1 });
+    const audit = await rpc(ws, "gin.audit.list", { action: "budget.set" });
+    expect(audit.payload as unknown[]).toHaveLength(1);
+    ws.close();
+  });
+});
+
+describe("RBAC enforcement", () => {
+  it("a viewer principal can read but not write", async () => {
+    const viewerGateway = createGateway({
+      port: 0,
+      stack,
+      principal: { id: "v1", name: "viewer", roles: ["viewer"] },
+    });
+    await viewerGateway.start();
+    try {
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${viewerGateway.address.port}/ws`);
+        socket.on("open", () => resolve(socket));
+        socket.on("error", reject);
+      });
+
+      const read = await rpc(ws, "gin.trace.list");
+      expect(read.ok).toBe(true);
+
+      const write = await rpc(ws, "gin.budget.set", { scope: "agent", limitUsd: 9 });
+      expect(write.ok).toBe(false);
+      expect((write.error as { code: string }).code).toBe("permission_denied");
+
+      const chat = await rpc(ws, "gin.chat.send", { text: "hi" });
+      expect(chat.ok).toBe(false);
+
+      const decide = await rpc(ws, "gin.approval.decide", {
+        approvalId: "x",
+        decision: "approved",
+      });
+      expect((decide.error as { code: string }).code).toBe("permission_denied");
+      ws.close();
+    } finally {
+      await viewerGateway.stop();
+    }
+  });
+});
+
 describe("resolveSecret", () => {
   it("resolves env refs and rejects raw values", () => {
     process.env.GIN_TEST_SECRET = "tok123";
