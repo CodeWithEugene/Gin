@@ -29,8 +29,10 @@ reported as "done"). Phase 4's first slice is in too: **Docker sandboxing** for 
 execution (per-agent `sandboxMode`), **self-improving skills** (SKILL.md with
 progressive disclosure — `gin skills`), a **declarative workflow DSL** compiled onto the
 durable engine (`gin workflow`, specs in `~/.gin/workflows/*.json`), a **cron scheduler**
-driving turns and workflows (`gin schedule`), and a **Slack** channel (Socket Mode)
-alongside WebChat and Telegram.
+driving turns and workflows (`gin schedule`), a **Slack** channel (Socket Mode)
+alongside WebChat and Telegram — and the **Command Center**: a glass-cockpit web UI
+(chat, live trace timelines, budget gauges, approval queue, schedule) served by the
+gateway at `http://127.0.0.1:18789/`.
 
 ## Quick start (dev)
 
@@ -63,7 +65,7 @@ To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
 | ------------------------ | ------------------------------------------------------------- |
 | `apps/gateway`           | The daemon: control plane, RPC/WS server, runtime stack       |
 | `apps/cli`               | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …)  |
-| `apps/command-center`    | React workspace UI + observability cockpit _(soon)_           |
+| `apps/command-center`    | The cockpit UI: chat, traces, budgets, approvals, schedule    |
 | `packages/core`          | Domain types, Zod schemas, event bus, IDs, errors             |
 | `packages/config`        | Config schema + loader (`~/.gin/gin.json`)                    |
 | `packages/storage`       | SQLite (WAL) handle + namespaced migrations                   |

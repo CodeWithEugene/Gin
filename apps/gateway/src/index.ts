@@ -1,8 +1,23 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { GinConfigSchema, loadConfig, type GinConfig } from "@gin/config";
 import { GinError } from "@gin/core";
 import { buildStack } from "./stack.js";
 import { createGateway } from "./server.js";
+
+/** Locate the built Command Center, if installed alongside the gateway. */
+export function findUiDist(): string | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require.resolve("@gin/command-center/package.json");
+    const dist = join(dirname(pkg), "dist");
+    return existsSync(join(dist, "index.html")) ? dist : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export { createGateway, type Gateway, type GatewayOptions } from "./server.js";
 export { buildStack, ensureDefaultAgent, resolveSecret, type GatewayStack } from "./stack.js";
@@ -34,9 +49,13 @@ if (isMain) {
     .then(async (stack) => {
       // Crash recovery: any workflow left 'running' resumes from its log.
       await stack.durable.resumeAll();
-      const gateway = createGateway({ port, host, stack });
+      const uiDir = findUiDist();
+      const gateway = createGateway({ port, host, stack, ...(uiDir ? { uiDir } : {}) });
       await gateway.start();
       console.log(`gin-gateway listening on ws://${host}:${gateway.address.port}/ws`);
+      if (uiDir) {
+        console.log(`command center at http://${host}:${gateway.address.port}/`);
+      }
       console.log(
         `default agent "${stack.defaultAgent.name}" → ${stack.defaultAgent.modelConfig.primary}`,
       );

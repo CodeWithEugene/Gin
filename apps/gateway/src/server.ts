@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import { EventBus, GinError, newId } from "@gin/core";
 import { OPERATOR, type Principal } from "@gin/governance";
@@ -17,6 +18,8 @@ export interface GatewayOptions {
    * The Phase 5 auth portal resolves this per-connection from credentials.
    */
   principal?: Principal;
+  /** Serve the Command Center SPA from this directory at "/". */
+  uiDir?: string;
 }
 
 export interface Gateway {
@@ -346,6 +349,18 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
   app.get("/health", async () => ({ status: "ok", name: "gin-gateway", version: "0.1.0" }));
+
+  // Command Center: static SPA with an index.html fallback for client routes.
+  if (opts.uiDir) {
+    const uiDir = opts.uiDir;
+    void app.register(fastifyStatic, { root: uiDir, prefix: "/" });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === "GET" && !req.url.startsWith("/ws")) {
+        return reply.sendFile("index.html", uiDir);
+      }
+      return reply.code(404).send({ error: "not found" });
+    });
+  }
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
   void app.register(websocket);

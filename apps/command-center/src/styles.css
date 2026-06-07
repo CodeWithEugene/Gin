@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+/**
+ * GIN COMMAND CENTER — glass cockpit theme.
+ * Amber phosphor instrumentation on bottle-green ink. Two voices:
+ * Bricolage Grotesque for headings/identity, IBM Plex Mono for every number,
+ * id, and timeline — data always reads as data.
+ */
+
+@theme {
+  --color-ink: #0b100e; /* bottle-green black */
+  --color-ink-2: #0f1613;
+  --color-ink-3: #15201b;
+  --color-line: #233029; /* hairline borders */
+  --color-line-2: #31443a;
+  --color-haze: #8ba395; /* dim sage text */
+  --color-fog: #c9d7cf; /* primary text */
+  --color-amber: #ffb454; /* phosphor accent */
+  --color-amber-2: #ffd9a0;
+  --color-ok: #4ade80;
+  --color-err: #f87171;
+  --color-info: #67e8f9;
+
+  --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-fog);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* CRT atmosphere: faint scanlines + vignette, never loud enough to read. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.015) 0 1px, transparent 1px 3px),
+    radial-gradient(120% 90% at 50% 10%, transparent 55%, rgba(0, 0, 0, 0.35));
+}
+
+::selection {
+  background: var(--color-amber);
+  color: var(--color-ink);
+}
+
+/* Stencil label: the section voice of the cockpit. */
+.stencil {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-haze);
+}
+
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  display: inline-block;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.led-pulse {
+  animation: led-pulse 2s ease-in-out infinite;
+}
+
+@keyframes led-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Staggered instrument boot on view mount. */
+.boot > * {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: boot-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+.boot > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.boot > *:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.boot > *:nth-child(3) {
+  animation-delay: 0.14s;
+}
+.boot > *:nth-child(4) {
+  animation-delay: 0.2s;
+}
+.boot > *:nth-child(5) {
+  animation-delay: 0.26s;
+}
+.boot > *:nth-child(6) {
+  animation-delay: 0.32s;
+}
+
+@keyframes boot-in {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* New rows in the live feed flash amber then settle. */
+.feed-row {
+  animation: feed-flash 1.2s ease-out;
+}
+@keyframes feed-flash {
+  0% {
+    background: rgba(255, 180, 84, 0.18);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.cursor-blink::after {
+  content: "▍";
+  color: var(--color-amber);
+  animation: led-pulse 1.1s steps(2) infinite;
+}
+
+input,
+textarea,
+select {
+  background: var(--color-ink-2);
+  border: 1px solid var(--color-line);
+  color: var(--color-fog);
+  font-family: var(--font-mono);
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-amber);
+  box-shadow: 0 0 0 1px rgba(255, 180, 84, 0.35);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
