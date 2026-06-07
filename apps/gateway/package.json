@@ -33,6 +33,7 @@
     "@gin/core": "workspace:*",
     "@gin/cost": "workspace:*",
     "@gin/durable": "workspace:*",
+    "@gin/email": "workspace:*",
     "@gin/governance": "workspace:*",
     "@gin/memory": "workspace:*",
     "@gin/models": "workspace:*",

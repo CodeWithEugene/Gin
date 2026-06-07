@@ -62,6 +62,26 @@ describe("SkillStore", () => {
   });
 });
 
+describe("bundled skills", () => {
+  it("installs once and never clobbers operator edits", async () => {
+    const { installBundledSkills, DEEP_RESEARCH_SKILL } = await import("./bundled.js");
+    const first = installBundledSkills(store);
+    expect(first).toContain("deep-research");
+    expect(store.read("deep-research").body).toContain("Decompose");
+
+    // Operator (or the agent) customizes the skill…
+    store.save({
+      slug: DEEP_RESEARCH_SKILL.slug,
+      description: "Customized",
+      body: "My own procedure.",
+    });
+    // …and re-install on next boot must not overwrite it.
+    const second = installBundledSkills(store);
+    expect(second).toHaveLength(0);
+    expect(store.read("deep-research").body).toBe("My own procedure.");
+  });
+});
+
 describe("skill tools", () => {
   it("skills.read and skills.save round-trip through the registry", async () => {
     const registry = registerSkillTools(new ToolRegistry());

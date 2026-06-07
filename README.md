@@ -29,10 +29,12 @@ reported as "done"). Phase 4's first slice is in too: **Docker sandboxing** for 
 execution (per-agent `sandboxMode`), **self-improving skills** (SKILL.md with
 progressive disclosure — `gin skills`), a **declarative workflow DSL** compiled onto the
 durable engine (`gin workflow`, specs in `~/.gin/workflows/*.json`), a **cron scheduler**
-driving turns and workflows (`gin schedule`), a **Slack** channel (Socket Mode)
-alongside WebChat and Telegram — and the **Command Center**: a glass-cockpit web UI
-(chat, live trace timelines, budget gauges, approval queue, schedule) served by the
-gateway at `http://127.0.0.1:18789/`.
+driving turns and workflows (`gin schedule`), **Slack** (Socket Mode) and **Discord**
+(gateway WS) channels alongside WebChat and Telegram, **web search + a bundled
+deep-research skill** (cited multi-source answers), **email tools** (IMAP/SMTP —
+`email.send` is approval-gate eligible) — and the **Command Center**: a glass-cockpit
+web UI (chat, live trace timelines, budget gauges, approval queue, schedule) served by
+the gateway at `http://127.0.0.1:18789/`.
 
 ## Quick start (dev)
 
@@ -61,29 +63,30 @@ To enable Telegram, set the bot token in your environment and `~/.gin/gin.json`:
 
 ## Monorepo layout
 
-| Path                     | What                                                          |
-| ------------------------ | ------------------------------------------------------------- |
-| `apps/gateway`           | The daemon: control plane, RPC/WS server, runtime stack       |
-| `apps/cli`               | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …)  |
-| `apps/command-center`    | The cockpit UI: chat, traces, budgets, approvals, schedule    |
-| `packages/core`          | Domain types, Zod schemas, event bus, IDs, errors             |
-| `packages/config`        | Config schema + loader (`~/.gin/gin.json`)                    |
-| `packages/storage`       | SQLite (WAL) handle + namespaced migrations                   |
-| `packages/models`        | Provider adapters (Anthropic, Ollama), routing, cost meter    |
-| `packages/tools`         | Tool registry (Zod-validated) + 10 built-in tools             |
-| `packages/mcp`           | MCP client (stdio + HTTP) with per-server tool filtering      |
-| `packages/memory`        | Persistent memory: FTS5 + vector hybrid search                |
-| `packages/runtime`       | Agent loop + session/turn/step persistence                    |
-| `packages/channels`      | Outbox (at-least-once, ordered) + WebChat/Telegram            |
-| `packages/durable`       | Event-sourced durable workflows: checkpoint/resume/compensate |
-| `packages/cost`          | Budget engine: limits enforced before each call + ledger      |
-| `packages/observability` | Trace store: step-level glass-box timelines from the bus      |
-| `packages/governance`    | RBAC scopes, append-only audit log, durable approval gates    |
-| `packages/verifier`      | Anti-silent-failure turn verification, pluggable rules        |
-| `packages/sandbox`       | Execution backends: host + Docker (ephemeral, no network)     |
-| `packages/skills`        | SKILL.md store: progressive disclosure + skills.save          |
-| `packages/workflows`     | Declarative DSL (tool/model/approval steps) on durable        |
-| `packages/scheduler`     | Cron jobs → agent turns or workflows, with heartbeats         |
+| Path                     | What                                                             |
+| ------------------------ | ---------------------------------------------------------------- |
+| `apps/gateway`           | The daemon: control plane, RPC/WS server, runtime stack          |
+| `apps/cli`               | The `gin` CLI (`onboard`, `doctor`, `gateway`, `message`, …)     |
+| `apps/command-center`    | The cockpit UI: chat, traces, budgets, approvals, schedule       |
+| `packages/core`          | Domain types, Zod schemas, event bus, IDs, errors                |
+| `packages/config`        | Config schema + loader (`~/.gin/gin.json`)                       |
+| `packages/storage`       | SQLite (WAL) handle + namespaced migrations                      |
+| `packages/models`        | Provider adapters (Anthropic, Ollama), routing, cost meter       |
+| `packages/tools`         | Tool registry (Zod-validated) + 10 built-in tools                |
+| `packages/mcp`           | MCP client (stdio + HTTP) with per-server tool filtering         |
+| `packages/memory`        | Persistent memory: FTS5 + vector hybrid search                   |
+| `packages/runtime`       | Agent loop + session/turn/step persistence                       |
+| `packages/channels`      | Outbox (at-least-once, ordered) + WebChat/Telegram/Slack/Discord |
+| `packages/email`         | IMAP/SMTP tools behind ports; outbound allowlist                 |
+| `packages/durable`       | Event-sourced durable workflows: checkpoint/resume/compensate    |
+| `packages/cost`          | Budget engine: limits enforced before each call + ledger         |
+| `packages/observability` | Trace store: step-level glass-box timelines from the bus         |
+| `packages/governance`    | RBAC scopes, append-only audit log, durable approval gates       |
+| `packages/verifier`      | Anti-silent-failure turn verification, pluggable rules           |
+| `packages/sandbox`       | Execution backends: host + Docker (ephemeral, no network)        |
+| `packages/skills`        | SKILL.md store: progressive disclosure + skills.save             |
+| `packages/workflows`     | Declarative DSL (tool/model/approval steps) on durable           |
+| `packages/scheduler`     | Cron jobs → agent turns or workflows, with heartbeats            |
 
 ## Principles
 

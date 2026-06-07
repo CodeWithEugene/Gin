@@ -17,9 +17,10 @@ beforeEach(() => {
 afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
 describe("registry", () => {
-  it("registers the 10 core tools", () => {
-    expect(CORE_TOOLS).toHaveLength(10);
+  it("registers the core tools", () => {
+    expect(CORE_TOOLS).toHaveLength(11);
     expect(registry.list().map((t) => t.name)).toContain("fs.read");
+    expect(registry.list().map((t) => t.name)).toContain("web.search");
   });
 
   it("filters by toolset policy and deny-list", () => {
@@ -125,6 +126,42 @@ describe("http.fetch", () => {
     await expect(
       registry.execute("http.fetch", { url: "file:///etc/passwd" }, ctx),
     ).rejects.toMatchObject({ code: "tool_error" });
+  });
+});
+
+describe("web.search", () => {
+  const DDG_HTML = `
+    <div class="result">
+      <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdurable&amp;rut=abc"><b>Durable</b> execution</a>
+      <a class="result__snippet" href="#">Checkpoint and <b>resume</b> workflows.</a>
+    </div>
+    <div class="result">
+      <a rel="nofollow" class="result__a" href="https://plain.example.org/page">Plain link</a>
+    </div>`;
+
+  it("parses results and decodes redirect URLs", async () => {
+    ctx.fetchImpl = vi.fn().mockResolvedValue(new Response(DDG_HTML, { status: 200 }));
+    const result = (await registry.execute("web.search", { query: "durable execution" }, ctx)) as {
+      results: { title: string; url: string; snippet: string }[];
+    };
+    expect(result.results).toEqual([
+      {
+        title: "Durable execution",
+        url: "https://example.com/durable",
+        snippet: "Checkpoint and resume workflows.",
+      },
+      { title: "Plain link", url: "https://plain.example.org/page", snippet: "" },
+    ]);
+    const [url] = (ctx.fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toContain("html.duckduckgo.com/html/?q=durable%20execution");
+  });
+
+  it("classifies upstream failures", async () => {
+    ctx.fetchImpl = vi.fn().mockResolvedValue(new Response("slow", { status: 429 }));
+    await expect(registry.execute("web.search", { query: "x" }, ctx)).rejects.toMatchObject({
+      code: "tool_error",
+      retryable: true,
+    });
   });
 });
 

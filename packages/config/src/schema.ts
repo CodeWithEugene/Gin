@@ -54,8 +54,27 @@ export const GovernanceConfigSchema = z.object({
   verifier: z.object({ enabled: z.boolean().default(true) }).default({}),
 });
 
+export const EmailEndpointSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().positive(),
+  secure: z.boolean().default(true),
+  user: z.string().min(1),
+  /** Secret reference, e.g. "env:GIN_IMAP_PASS" — never a raw password. */
+  passRef: z.string().min(1),
+});
+
+export const EmailConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  from: z.string().email().optional(),
+  imap: EmailEndpointSchema.optional(),
+  smtp: EmailEndpointSchema.optional(),
+  /** Outbound allowlist: exact addresses or "@domain" rules; empty = any. */
+  allowSendTo: z.array(z.string()).default([]),
+});
+
 export const GinConfigSchema = z.object({
   agent: AgentDefaultsSchema,
+  email: EmailConfigSchema.default({}),
   gateway: GatewayConfigSchema.default({}),
   budgets: BudgetDefaultsSchema.default({}),
   channels: z.record(ChannelConfigSchema).default({}),

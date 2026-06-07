@@ -2,12 +2,14 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   ChannelManager,
+  DiscordAdapter,
   Outbox,
   SlackAdapter,
   TelegramAdapter,
   WebChatAdapter,
   type DmPolicy,
 } from "@gin/channels";
+import { EmailService, ImapFlowPort, NodemailerPort, registerEmailTools } from "@gin/email";
 import { ginHome, workspacePath, type GinConfig } from "@gin/config";
 import { EventBus, newId, type Agent } from "@gin/core";
 import { BudgetEngine } from "@gin/cost";
@@ -18,7 +20,7 @@ import { AnthropicProvider, ModelRouter, OllamaProvider } from "@gin/models";
 import { TraceStore } from "@gin/observability";
 import { AgentRuntime, SessionStore } from "@gin/runtime";
 import { Scheduler } from "@gin/scheduler";
-import { SkillStore, registerSkillTools } from "@gin/skills";
+import { SkillStore, installBundledSkills, registerSkillTools } from "@gin/skills";
 import { openDatabase, type GinDatabase } from "@gin/storage";
 import { ToolRegistry, registerCoreTools } from "@gin/tools";
 import { Verifier } from "@gin/verifier";
@@ -78,7 +80,9 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
   // carries recall. Swapping in OllamaEmbedder is a config change later.
   const memory = new MemoryStore(db, { embedder: new HashEmbedder() });
   const skills = new SkillStore(join(home, "skills"));
+  installBundledSkills(skills);
   const registry = registerSkillTools(registerCoreTools(new ToolRegistry()));
+  registerEmail(registry, config, bus);
 
   const router = opts.router ?? defaultRouter();
 
@@ -172,6 +176,7 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
   await manager.register(webchat);
   await registerTelegram(manager, config, bus);
   await registerSlack(manager, config, bus);
+  await registerDiscord(manager, config, bus);
 
   return {
     bus,
@@ -300,6 +305,47 @@ async function registerTelegram(
     return;
   }
   await manager.register(new TelegramAdapter({ token }));
+}
+
+async function registerDiscord(
+  manager: ChannelManager,
+  config: GinConfig,
+  bus: EventBus,
+): Promise<void> {
+  const discord = config.channels.discord;
+  if (!discord?.enabled) return;
+  const token = resolveSecret(discord.tokenRef);
+  if (!token) {
+    bus.emit("channel.error", {
+      channelId: "discord",
+      message: `Discord enabled but token not resolvable. Set tokenRef to "env:DISCORD_BOT_TOKEN".`,
+    });
+    return;
+  }
+  await manager.register(new DiscordAdapter({ token }));
+}
+
+/** Wire email tools when the operator configured a mailbox. */
+function registerEmail(registry: ToolRegistry, config: GinConfig, bus: EventBus): void {
+  const email = config.email;
+  if (!email.enabled) return;
+  const imapPass = resolveSecret(email.imap?.passRef);
+  const smtpPass = resolveSecret(email.smtp?.passRef);
+  if (!email.imap || !email.smtp || !email.from || !imapPass || !smtpPass) {
+    bus.emit("channel.error", {
+      channelId: "email",
+      message:
+        "Email enabled but incomplete: needs from, imap{host,port,user,passRef}, smtp{...} with resolvable env refs.",
+    });
+    return;
+  }
+  const service = new EmailService({
+    imap: new ImapFlowPort({ ...email.imap, pass: imapPass }),
+    smtp: new NodemailerPort({ ...email.smtp, pass: smtpPass }),
+    from: email.from,
+    allowSendTo: email.allowSendTo,
+  });
+  registerEmailTools(registry, service);
 }
 
 /**
