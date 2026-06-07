@@ -34,7 +34,10 @@ driving turns and workflows (`gin schedule`), **Slack** (Socket Mode) and **Disc
 deep-research skill** (cited multi-source answers), **email tools** (IMAP/SMTP —
 `email.send` is approval-gate eligible) — and the **Command Center**: a glass-cockpit
 web UI (chat, live trace timelines, budget gauges, approval queue, schedule) served by
-the gateway at `http://127.0.0.1:18789/`.
+the gateway at `http://127.0.0.1:18789/`. Phase 5 has begun: **API-key auth**
+(`gin keys create` — hashed at rest, shown once, role- and tenant-bound; connect with
+`?token=`) and **multi-tenancy basics** (tenant-scoped principals see only their own
+agents and sessions).
 
 ## Quick start (dev)
 

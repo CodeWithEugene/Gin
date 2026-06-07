@@ -14,7 +14,7 @@ import { ginHome, workspacePath, type GinConfig } from "@gin/config";
 import { EventBus, newId, type Agent } from "@gin/core";
 import { BudgetEngine } from "@gin/cost";
 import { DurableEngine } from "@gin/durable";
-import { ApprovalBroker, AuditLog, Rbac } from "@gin/governance";
+import { ApiKeyStore, ApprovalBroker, AuditLog, Rbac } from "@gin/governance";
 import { HashEmbedder, MemoryStore } from "@gin/memory";
 import { AnthropicProvider, ModelRouter, OllamaProvider } from "@gin/models";
 import { TraceStore } from "@gin/observability";
@@ -50,6 +50,7 @@ export interface GatewayStack {
   approvals: ApprovalBroker;
   audit: AuditLog;
   rbac: Rbac;
+  keys: ApiKeyStore;
   skills: SkillStore;
   workflows: WorkflowRunner;
   scheduler: Scheduler;
@@ -96,6 +97,7 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
   const approvals = new ApprovalBroker(db, { bus, timeoutMs: approvalsConfig.timeoutMs });
   const audit = new AuditLog(db);
   const rbac = new Rbac();
+  const keys = new ApiKeyStore(db);
 
   const runtime = new AgentRuntime({
     store,
@@ -117,6 +119,8 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
     skills,
   });
   const defaultAgent = ensureDefaultAgent(store, config);
+  // The default agent's tenant becomes the named "local" tenant (Phase 5).
+  store.ensureTenant({ id: defaultAgent.tenantId, name: "local" });
 
   // Phase 4: declarative workflows (specs from ~/.gin/workflows/*.json) and
   // the scheduler that drives turns/workflows on cron.
@@ -194,6 +198,7 @@ export async function buildStack(opts: BuildStackOptions): Promise<GatewayStack>
     approvals,
     audit,
     rbac,
+    keys,
     skills,
     workflows,
     scheduler,

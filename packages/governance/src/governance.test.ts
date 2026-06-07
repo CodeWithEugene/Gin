@@ -61,6 +61,41 @@ describe("AuditLog", () => {
   });
 });
 
+describe("ApiKeyStore", () => {
+  it("creates a key shown once, verifiable thereafter, with tenant + roles", async () => {
+    const { ApiKeyStore } = await import("./apikeys.js");
+    const store = new ApiKeyStore(openDatabase({ path: ":memory:" }));
+    const created = store.create({ name: "ci-bot", roles: ["viewer"], tenantId: "T1" });
+    expect(created.key).toMatch(/^gin_/);
+    // The raw key is not on disk:
+    expect(JSON.stringify(store.list())).not.toContain(created.key);
+
+    const principal = store.verify(created.key)!;
+    expect(principal).toMatchObject({ name: "ci-bot", roles: ["viewer"], tenantId: "T1" });
+    expect(store.get(created.id)!.lastUsedAt).toBeGreaterThan(0);
+  });
+
+  it("rejects unknown, malformed, and revoked keys", async () => {
+    const { ApiKeyStore } = await import("./apikeys.js");
+    const store = new ApiKeyStore(openDatabase({ path: ":memory:" }));
+    const created = store.create({ name: "temp" });
+    expect(store.verify("gin_not-a-real-key")).toBeUndefined();
+    expect(store.verify("sk-other-prefix")).toBeUndefined();
+
+    expect(store.revoke(created.id)).toBe(true);
+    expect(store.revoke(created.id)).toBe(false); // idempotent
+    expect(store.verify(created.key)).toBeUndefined();
+    expect(store.get(created.id)!.revokedAt).toBeGreaterThan(0);
+  });
+
+  it("defaults to the viewer role", async () => {
+    const { ApiKeyStore } = await import("./apikeys.js");
+    const store = new ApiKeyStore(openDatabase({ path: ":memory:" }));
+    const created = store.create({ name: "plain" });
+    expect(store.verify(created.key)!.roles).toEqual(["viewer"]);
+  });
+});
+
 describe("ApprovalBroker", () => {
   let db: GinDatabase;
   let bus: EventBus;

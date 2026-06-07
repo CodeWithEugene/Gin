@@ -14,6 +14,8 @@ export interface Principal {
   id: string;
   name: string;
   roles: string[];
+  /** Bound tenant: list RPCs scope to it. Absent = unscoped (operator). */
+  tenantId?: string;
 }
 
 export const DEFAULT_ROLES: Record<string, Scope[]> = {

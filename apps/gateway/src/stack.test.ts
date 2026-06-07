@@ -313,6 +313,86 @@ describe("RBAC enforcement", () => {
   });
 });
 
+describe("Phase 5: API-key auth", () => {
+  function connectWith(token?: string): Promise<{ ws: WebSocket; closed: Promise<number> }> {
+    return new Promise((resolve, reject) => {
+      const url =
+        `ws://127.0.0.1:${gateway.address.port}/ws` +
+        (token ? `?token=${encodeURIComponent(token)}` : "");
+      const ws = new WebSocket(url);
+      const closed = new Promise<number>((res) => ws.on("close", (code: number) => res(code)));
+      ws.on("open", () => resolve({ ws, closed }));
+      ws.on("error", reject);
+    });
+  }
+
+  it("creates keys over RPC (operator-only) and lists them without secrets", async () => {
+    const ws = await connect();
+    const created = await rpc(ws, "gin.key.create", { name: "ci", roles: ["viewer"] });
+    expect(created.ok).toBe(true);
+    const payload = created.payload as { id: string; key: string };
+    expect(payload.key).toMatch(/^gin_/);
+
+    const list = await rpc(ws, "gin.key.list");
+    expect(JSON.stringify(list.payload)).not.toContain(payload.key);
+
+    const audit = await rpc(ws, "gin.audit.list", { action: "key.created" });
+    expect(audit.payload as unknown[]).toHaveLength(1);
+    ws.close();
+  });
+
+  it("a keyed connection gets exactly its key's role", async () => {
+    const created = stack.keys.create({ name: "viewer-key", roles: ["viewer"] });
+    const { ws } = await connectWith(created.key);
+
+    const read = await rpc(ws, "gin.trace.list");
+    expect(read.ok).toBe(true);
+    const write = await rpc(ws, "gin.budget.set", { scope: "agent", limitUsd: 1 });
+    expect((write.error as { code: string }).code).toBe("permission_denied");
+    const keys = await rpc(ws, "gin.key.list");
+    expect((keys.error as { code: string }).code).toBe("permission_denied");
+    ws.close();
+  });
+
+  it("revoked and invalid keys are refused at the door", async () => {
+    const created = stack.keys.create({ name: "doomed", roles: ["viewer"] });
+    stack.keys.revoke(created.id);
+    const { closed } = await connectWith(created.key);
+    await expect(closed).resolves.toBe(1008);
+
+    const bogus = await connectWith("gin_totally-bogus");
+    await expect(bogus.closed).resolves.toBe(1008);
+  });
+
+  it("tenant-bound keys see only their tenant's agents and sessions", async () => {
+    // A second tenant with its own agent:
+    const otherTenant = stack.store.ensureTenant({ name: "acme" });
+    stack.store.createAgent({
+      tenantId: otherTenant.id,
+      name: "acme-agent",
+      workspacePath: workspace,
+      modelConfig: { primary: "fake/echo", fallbacks: [] },
+      sandboxMode: "host",
+    });
+
+    const localKey = stack.keys.create({
+      name: "local-viewer",
+      roles: ["viewer"],
+      tenantId: stack.defaultAgent.tenantId,
+    });
+    const { ws } = await connectWith(localKey.key);
+    const agents = await rpc(ws, "gin.agent.list");
+    expect((agents.payload as { name: string }[]).map((a) => a.name)).toEqual(["gin"]);
+    ws.close();
+
+    // The loopback operator still sees everything.
+    const opWs = await connect();
+    const all = await rpc(opWs, "gin.agent.list");
+    expect((all.payload as unknown[]).length).toBe(2);
+    opWs.close();
+  });
+});
+
 describe("resolveSecret", () => {
   it("resolves env refs and rejects raw values", () => {
     process.env.GIN_TEST_SECRET = "tok123";

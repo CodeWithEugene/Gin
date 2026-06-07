@@ -525,6 +525,82 @@ workflow
     }
   });
 
+const keys = program.command("keys").description("Manage API keys for remote access");
+
+keys
+  .command("create <name>")
+  .description("Create an API key (the secret is shown once — store it now)")
+  .option("--role <roles...>", "roles for this key", ["viewer"])
+  .option("--tenant <tenantId>", "bind the key to one tenant")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (name: string, opts: { role: string[]; tenant?: string; gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const created = await client.call<{ id: string; key: string; roles: string[] }>(
+        "gin.key.create",
+        {
+          name,
+          roles: opts.role,
+          ...(opts.tenant !== undefined ? { tenantId: opts.tenant } : {}),
+        },
+      );
+      console.log(`id:    ${created.id}`);
+      console.log(`roles: ${created.roles.join(", ")}`);
+      console.log(`key:   ${created.key}`);
+      console.log("\nThis key is shown ONCE. Connect with ws://host:port/ws?token=<key>");
+    } finally {
+      client.close();
+    }
+  });
+
+keys
+  .command("list")
+  .description("List API keys (never shows secrets)")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const list = await client.call<
+        {
+          id: string;
+          name: string;
+          roles: string[];
+          tenantId?: string;
+          lastUsedAt?: number;
+          revokedAt?: number;
+        }[]
+      >("gin.key.list");
+      if (list.length === 0) {
+        console.log("No API keys. Create one with `gin keys create <name>`.");
+        return;
+      }
+      for (const k of list) {
+        const state = k.revokedAt ? "revoked" : "active ";
+        const used = k.lastUsedAt ? `used ${new Date(k.lastUsedAt).toISOString()}` : "never used";
+        console.log(
+          `${k.id}  ${state}  ${k.name.padEnd(16)}  [${k.roles.join(",")}]` +
+            `${k.tenantId ? `  tenant:${k.tenantId.slice(-8)}` : ""}  ${used}`,
+        );
+      }
+    } finally {
+      client.close();
+    }
+  });
+
+keys
+  .command("revoke <keyId>")
+  .description("Revoke an API key immediately")
+  .option("--gateway-url <url>", "gateway base URL", "http://127.0.0.1:18789")
+  .action(async (keyId: string, opts: { gatewayUrl: string }) => {
+    const client = await GatewayClient.connect(gatewayWsUrl(opts.gatewayUrl));
+    try {
+      const result = await client.call<{ revoked: boolean }>("gin.key.revoke", { keyId });
+      console.log(result.revoked ? "Revoked." : "No active key with that id.");
+    } finally {
+      client.close();
+    }
+  });
+
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   program.parseAsync(process.argv).catch((err: unknown) => {

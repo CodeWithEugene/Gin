@@ -110,6 +110,14 @@ const ScheduleDeleteSchema = z.object({ name: z.string().min(1) });
 
 const WorkflowRunSchema = z.object({ name: z.string().min(1), input: z.unknown().optional() });
 
+const KeyCreateSchema = z.object({
+  name: z.string().min(1),
+  roles: z.array(z.string().min(1)).optional(),
+  tenantId: z.string().optional(),
+});
+
+const KeyRevokeSchema = z.object({ keyId: z.string().min(1) });
+
 /** RBAC scope required per RPC method; unlisted methods are open. */
 const METHOD_SCOPES: Record<string, string> = {
   "gin.schedule.list": "schedule:read",
@@ -128,6 +136,9 @@ const METHOD_SCOPES: Record<string, string> = {
   "gin.approval.list": "approvals:read",
   "gin.approval.decide": "approvals:decide",
   "gin.audit.list": "audit:read",
+  "gin.key.create": "keys:admin",
+  "gin.key.list": "keys:admin",
+  "gin.key.revoke": "keys:admin",
 };
 
 const startedAt = Symbol("startedAt");
@@ -135,7 +146,6 @@ const startedAt = Symbol("startedAt");
 export function createGateway(opts: GatewayOptions = {}): Gateway {
   const bus = opts.bus ?? opts.stack?.bus ?? new EventBus();
   const stack = opts.stack;
-  const principal = opts.principal ?? OPERATOR;
   const app = Fastify({ logger: false });
   const host = opts.host ?? "127.0.0.1";
   const requestedPort = opts.port ?? 18789;
@@ -307,11 +317,54 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
       return row;
     });
 
-    methods.set("gin.agent.list", () => stack.store.listAgents());
-    methods.set("gin.session.list", (params) => {
+    // Tenant scoping (Phase 5): a tenant-bound key sees only its own world.
+    const tenantAgents = (ctx: RpcContext) => {
+      const agents = stack.store.listAgents();
+      return ctx.principal.tenantId
+        ? agents.filter((a) => a.tenantId === ctx.principal.tenantId)
+        : agents;
+    };
+    methods.set("gin.agent.list", (_params, ctx) => tenantAgents(ctx));
+    methods.set("gin.session.list", (params, ctx) => {
       const parsed = SessionListSchema.safeParse(params ?? undefined);
       if (!parsed.success) throw new GinError("validation_failed", "Invalid session.list params");
-      return stack.store.listSessions(parsed.data?.agentId);
+      let sessions = stack.store.listSessions(parsed.data?.agentId);
+      if (ctx.principal.tenantId) {
+        const allowed = new Set(tenantAgents(ctx).map((a) => a.id));
+        sessions = sessions.filter((s) => allowed.has(s.agentId));
+      }
+      return sessions;
+    });
+
+    // ── Phase 5: API keys ────────────────────────────────────────────────────
+    methods.set("gin.key.create", (params, ctx) => {
+      const parsed = KeyCreateSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new GinError("validation_failed", "gin.key.create needs { name, roles?, tenantId? }");
+      }
+      const created = stack.keys.create(parsed.data);
+      stack.audit.append({
+        actor: ctx.principal.name,
+        action: "key.created",
+        target: `key/${created.id}`,
+        after: { name: created.name, roles: created.roles, tenantId: created.tenantId },
+      });
+      return created; // includes the raw key — shown exactly once
+    });
+    methods.set("gin.key.list", () => stack.keys.list());
+    methods.set("gin.key.revoke", (params, ctx) => {
+      const parsed = KeyRevokeSchema.safeParse(params);
+      if (!parsed.success)
+        throw new GinError("validation_failed", "gin.key.revoke needs { keyId }");
+      const revoked = stack.keys.revoke(parsed.data.keyId);
+      if (revoked) {
+        stack.audit.append({
+          actor: ctx.principal.name,
+          action: "key.revoked",
+          target: `key/${parsed.data.keyId}`,
+        });
+      }
+      return { revoked };
     });
     /**
      * WebChat send: feed the message into the channel pipeline and return
@@ -362,16 +415,45 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
     });
   }
 
+  /**
+   * Per-connection auth (Phase 5): a Bearer/?token key resolves to its
+   * Principal; loopback without a key stays the local operator; anything
+   * else is refused. opts.principal overrides (tests / embedding).
+   */
+  const resolvePrincipal = (req: {
+    headers: Record<string, string | string[] | undefined>;
+    query?: unknown;
+    ip?: string;
+  }): Principal | undefined => {
+    if (opts.principal) return opts.principal;
+    const header = req.headers.authorization;
+    const bearer =
+      typeof header === "string" && header.toLowerCase().startsWith("bearer ")
+        ? header.slice(7).trim()
+        : undefined;
+    const queryToken = (req.query as { token?: string } | undefined)?.token;
+    const token = bearer ?? queryToken;
+    if (token) return stack?.keys.verify(token); // bad key → undefined → refuse
+    const ip = req.ip ?? "";
+    const loopback = ip === "127.0.0.1" || ip === "::1" || ip.startsWith("::ffff:127.");
+    return loopback ? OPERATOR : undefined;
+  };
+
   // ── WebSocket ──────────────────────────────────────────────────────────────
   void app.register(websocket);
   void app.register(async (instance) => {
-    instance.get("/ws", { websocket: true }, (socket) => {
+    instance.get("/ws", { websocket: true }, (socket, req) => {
+      const connectionPrincipal = resolvePrincipal(req);
+      if (!connectionPrincipal) {
+        socket.close(1008, "unauthorized");
+        return;
+      }
       const closers: Array<() => void> = [];
       const boundPeers = new Set<string>();
       const ctx: RpcContext = {
         bus,
         connectionId: newId(),
-        principal,
+        principal: connectionPrincipal,
         push: (frame) => socket.send(JSON.stringify(frame)),
         onClose: (fn) => closers.push(fn),
         ...(stack

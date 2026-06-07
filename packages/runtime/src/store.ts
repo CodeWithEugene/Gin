@@ -94,7 +94,37 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    name: "tenants",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE tenants (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          plan TEXT NOT NULL DEFAULT 'local',
+          created_at INTEGER NOT NULL
+        );
+      `);
+    },
+  },
 ];
+
+export interface TenantRecord {
+  id: string;
+  name: string;
+  plan: string;
+  createdAt: number;
+}
+
+function toTenant(row: Record<string, unknown>): TenantRecord {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    plan: row.plan as string,
+    createdAt: row.created_at as number,
+  };
+}
 
 export interface SessionRecord {
   id: string;
@@ -117,6 +147,41 @@ export interface StoredMessage {
 export class SessionStore {
   constructor(private readonly db: GinDatabase) {
     migrate(db, "runtime", MIGRATIONS);
+  }
+
+  // ── Tenants ────────────────────────────────────────────────────────────────
+
+  /** Idempotent: create the tenant row if its name (or id) isn't present. */
+  ensureTenant(input: { id?: string; name: string; plan?: string }): TenantRecord {
+    const existing = this.db
+      .prepare("SELECT * FROM tenants WHERE name = ? OR id = ?")
+      .get(input.name, input.id ?? "") as Record<string, unknown> | undefined;
+    if (existing) return toTenant(existing);
+    const tenant: TenantRecord = {
+      id: input.id ?? newId(),
+      name: input.name,
+      plan: input.plan ?? "local",
+      createdAt: Date.now(),
+    };
+    this.db
+      .prepare("INSERT INTO tenants (id, name, plan, created_at) VALUES (?, ?, ?, ?)")
+      .run(tenant.id, tenant.name, tenant.plan, tenant.createdAt);
+    return tenant;
+  }
+
+  getTenant(id: string): TenantRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM tenants WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? toTenant(row) : undefined;
+  }
+
+  listTenants(): TenantRecord[] {
+    const rows = this.db.prepare("SELECT * FROM tenants ORDER BY created_at").all() as Record<
+      string,
+      unknown
+    >[];
+    return rows.map(toTenant);
   }
 
   // ── Agents ─────────────────────────────────────────────────────────────────
