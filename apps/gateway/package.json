@@ -1,0 +1,42 @@
+{
+  "name": "@gin/gateway",
+  "version": "0.1.0",
+  "description": "Gin Gateway — the single control-plane daemon: channels, sessions, tools, events, RPC/WS API.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "gin-gateway": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "node --experimental-strip-types src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.0.0",
+    "@gin/config": "workspace:*",
+    "@gin/core": "workspace:*",
+    "fastify": "^5.2.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0",
+    "ws": "^8.18.0"
+  }
+}
